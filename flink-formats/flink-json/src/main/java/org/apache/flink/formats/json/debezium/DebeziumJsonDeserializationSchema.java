@@ -144,13 +144,18 @@ public final class DebeziumJsonDeserializationSchema implements DeserializationS
                 emitRow(row, after, out);
             } else if (OP_UPDATE.equals(op)) {
                 if (before == null) {
-                    throw new IllegalStateException(
-                            String.format(REPLICA_IDENTITY_EXCEPTION, "UPDATE"));
+                    // throw new IllegalStateException(
+                    //         String.format(REPLICA_IDENTITY_EXCEPTION, "UPDATE"));
+                    after.setRowKind(RowKind.UPDATE_BEFORE);
+                    emitRow(row, after, out);
+                    after.setRowKind(RowKind.UPDATE_AFTER);
+                    emitRow(row, after, out);
+                } else {
+                    before.setRowKind(RowKind.UPDATE_BEFORE);
+                    after.setRowKind(RowKind.UPDATE_AFTER);
+                    emitRow(row, before, out);
+                    emitRow(row, after, out);
                 }
-                before.setRowKind(RowKind.UPDATE_BEFORE);
-                after.setRowKind(RowKind.UPDATE_AFTER);
-                emitRow(row, before, out);
-                emitRow(row, after, out);
             } else if (OP_DELETE.equals(op)) {
                 if (before == null) {
                     throw new IllegalStateException(
