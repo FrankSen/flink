@@ -39,6 +39,6 @@ public class PrometheusReporterFactory implements MetricReporterFactory {
         String portsConfig = metricConfig.getString(ARG_PORT, DEFAULT_PORT);
         Iterator<Integer> ports = NetUtils.getPortRangeFromString(portsConfig);
 
-        return new PrometheusReporter(ports);
+        return new PrometheusReporter(metricConfig, ports, portsConfig);
     }
 }
