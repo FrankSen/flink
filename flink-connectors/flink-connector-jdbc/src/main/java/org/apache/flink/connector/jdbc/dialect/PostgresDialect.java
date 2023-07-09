@@ -20,6 +20,7 @@ package org.apache.flink.connector.jdbc.dialect;
 
 import org.apache.flink.connector.jdbc.internal.converter.JdbcRowConverter;
 import org.apache.flink.connector.jdbc.internal.converter.PostgresRowConverter;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -56,6 +57,11 @@ public class PostgresDialect extends AbstractDialect {
     @Override
     public String getLimitClause(long limit) {
         return "LIMIT " + limit;
+    }
+
+    @Override
+    public String fromFlinkType(LogicalType paramLogicalTye) {
+        return null;
     }
 
     @Override

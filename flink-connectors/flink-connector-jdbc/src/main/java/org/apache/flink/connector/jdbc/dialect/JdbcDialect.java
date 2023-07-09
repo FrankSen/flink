@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.connector.jdbc.internal.converter.JdbcRowConverter;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.ValidationException;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
 import java.io.Serializable;
@@ -66,6 +67,8 @@ public interface JdbcDialect extends Serializable {
      */
     String getLimitClause(long limit);
 
+    String fromFlinkType(LogicalType paramLogicalTye);
+
     /**
      * Check if this dialect instance support a specific data type in table schema.
      *
@@ -89,6 +92,17 @@ public interface JdbcDialect extends Serializable {
      */
     default String quoteIdentifier(String identifier) {
         return "\"" + identifier + "\"";
+    }
+
+    /**
+     * Quotes the identifier. This is used to put quotes around the identifier in case the column
+     * name is a reserved keyword, or in case it contains characters that require quotes (e.g.
+     * space). Default using double quotes {@code "} to quote.
+     */
+    default String getAlterAddColumn(String tableName, String col, LogicalType type) {
+        String base = "alter table %s add %s %s NULL";
+        return String.format(
+                base, quoteIdentifier(tableName), quoteIdentifier(col), fromFlinkType(type));
     }
 
     /**

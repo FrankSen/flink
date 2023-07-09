@@ -20,6 +20,7 @@ package org.apache.flink.connector.jdbc.dialect;
 
 import org.apache.flink.connector.jdbc.internal.converter.DerbyRowConverter;
 import org.apache.flink.connector.jdbc.internal.converter.JdbcRowConverter;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -69,6 +70,11 @@ class DerbyDialect extends AbstractDialect {
     @Override
     public String getLimitClause(long limit) {
         return String.format("FETCH FIRST %d ROWS ONLY", limit);
+    }
+
+    @Override
+    public String fromFlinkType(LogicalType paramLogicalTye) {
+        return null;
     }
 
     @Override
