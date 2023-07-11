@@ -154,6 +154,12 @@ under the License.
 			<scope>test</scope>
 		</dependency>
 
+		<!-- hutool -->
+		<dependency>
+			<groupId>cn.hutool</groupId>
+			<artifactId>hutool-all</artifactId>
+			<version>5.8.4</version>
+		</dependency>
 		<!-- H2 tests -->
 		<dependency>
 			<groupId>com.h2database</groupId>

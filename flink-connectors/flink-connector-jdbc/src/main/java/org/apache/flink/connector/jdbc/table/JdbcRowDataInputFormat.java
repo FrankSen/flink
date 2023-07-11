@@ -28,7 +28,6 @@ import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
 import org.apache.flink.connector.jdbc.internal.connection.JdbcConnectionProvider;
-import org.apache.flink.connector.jdbc.internal.connection.SimpleJdbcConnectionProvider;
 import org.apache.flink.connector.jdbc.internal.converter.JdbcRowConverter;
 import org.apache.flink.connector.jdbc.split.JdbcParameterValuesProvider;
 import org.apache.flink.core.io.GenericInputSplit;
@@ -48,6 +47,7 @@ import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Arrays;
@@ -73,6 +73,33 @@ public class JdbcRowDataInputFormat extends RichInputFormat<RowData, InputSplit>
     private transient PreparedStatement statement;
     private transient ResultSet resultSet;
     private transient boolean hasNext;
+    private String db;
+    private String schema;
+    private String table;
+
+    public String getDb() {
+        return db;
+    }
+
+    public void setDb(String db) {
+        this.db = db;
+    }
+
+    public String getSchema() {
+        return schema;
+    }
+
+    public void setSchema(String schema) {
+        this.schema = schema;
+    }
+
+    public String getTable() {
+        return table;
+    }
+
+    public void setTable(String table) {
+        this.table = table;
+    }
 
     private JdbcRowDataInputFormat(
             JdbcConnectionProvider connectionProvider,
@@ -103,12 +130,23 @@ public class JdbcRowDataInputFormat extends RichInputFormat<RowData, InputSplit>
     @Override
     public void openInputFormat() {
         // called once per inputFormat (on open)
+        LOG.info("JDBCRowDataInputFormat openInputFormat...");
         try {
             Connection dbConn = connectionProvider.getOrEstablishConnection();
             // set autoCommit mode only if it was explicitly configured.
             // keep connection default otherwise.
             if (autoCommit != null) {
                 dbConn.setAutoCommit(autoCommit);
+            }
+            String[] split = queryTemplate.split("###");
+            if (split.length == 2) {
+                this.queryTemplate = split[1];
+                dbConn.setAutoCommit(false);
+                String stmt = split[0];
+                LOG.info("execute sql :{}", stmt);
+                try (Statement statement = dbConn.createStatement()) {
+                    statement.execute(stmt);
+                }
             }
             statement = dbConn.prepareStatement(queryTemplate, resultSetType, resultSetConcurrency);
             if (fetchSize == Integer.MIN_VALUE || fetchSize > 0) {
@@ -307,9 +345,15 @@ public class JdbcRowDataInputFormat extends RichInputFormat<RowData, InputSplit>
         private TypeInformation<RowData> rowDataTypeInfo;
         private int resultSetType = ResultSet.TYPE_FORWARD_ONLY;
         private int resultSetConcurrency = ResultSet.CONCUR_READ_ONLY;
+        private JdbcConnectionProvider jdbcConnectionProvider;
 
         public Builder() {
             this.connOptionsBuilder = new JdbcConnectionOptions.JdbcConnectionOptionsBuilder();
+        }
+
+        public Builder setJdbcConnectionProvider(JdbcConnectionProvider jdbcConnectionProvider) {
+            this.jdbcConnectionProvider = jdbcConnectionProvider;
+            return this;
         }
 
         public Builder setDrivername(String drivername) {
@@ -387,7 +431,8 @@ public class JdbcRowDataInputFormat extends RichInputFormat<RowData, InputSplit>
                 LOG.debug("No input splitting configured (data will be read with parallelism 1).");
             }
             return new JdbcRowDataInputFormat(
-                    new SimpleJdbcConnectionProvider(connOptionsBuilder.build()),
+                    // new SimpleJdbcConnectionProvider(connOptionsBuilder.build()),
+                    this.jdbcConnectionProvider,
                     this.fetchSize,
                     this.autoCommit,
                     this.parameterValues,

@@ -25,6 +25,8 @@ import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 
+import cn.hutool.core.util.StrUtil;
+
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Optional;
@@ -68,6 +70,10 @@ public interface JdbcDialect extends Serializable {
     String getLimitClause(long limit);
 
     String fromFlinkType(LogicalType paramLogicalTye);
+
+    default String getHashMod(String col, int num) {
+        return null;
+    }
 
     /**
      * Check if this dialect instance support a specific data type in table schema.
@@ -194,5 +200,61 @@ public interface JdbcDialect extends Serializable {
                 + " FROM "
                 + quoteIdentifier(tableName)
                 + (conditionFields.length > 0 ? " WHERE " + fieldExpressions : "");
+    }
+
+    default String getSelectFromStatement(
+            String schema, String tableName, String[] selectFields, String[] conditionFields) {
+        String selectExpressions =
+                Arrays.stream(selectFields)
+                        .map(this::quoteIdentifier)
+                        .collect(Collectors.joining(", "));
+        String fieldExpressions =
+                Arrays.stream(conditionFields)
+                        .map(f -> String.format("%s = :%s", new Object[] {quoteIdentifier(f), f}))
+                        .collect(Collectors.joining(" AND "));
+        String tablePath = null;
+        String dbName = "";
+        tableName = quoteIdentifier(tableName);
+        if (this instanceof PostgresDialect) {
+            schema = StrUtil.isBlank(schema) ? "public." : (quoteIdentifier(schema) + ".");
+            tablePath = StrUtil.format("{}{}{}", dbName, schema, tableName);
+        } else if (this instanceof MySQLDialect) {
+            tablePath = StrUtil.format("{}{}", dbName, tableName);
+        }
+        return "SELECT "
+                + selectExpressions
+                + " FROM "
+                + tablePath
+                + ((conditionFields.length > 0) ? (" WHERE " + fieldExpressions) : "");
+    }
+
+    default String getSelectFromStatement(
+            String dbName,
+            String schema,
+            String tableName,
+            String[] selectFields,
+            String[] conditionFields) {
+        String selectExpressions =
+                Arrays.stream(selectFields)
+                        .map(this::quoteIdentifier)
+                        .collect(Collectors.joining(", "));
+        String fieldExpressions =
+                Arrays.stream(conditionFields)
+                        .map(f -> String.format("%s = :%s", new Object[] {quoteIdentifier(f), f}))
+                        .collect(Collectors.joining(" AND "));
+        String tablePath = null;
+        dbName = StrUtil.isBlank(dbName) ? "" : (quoteIdentifier(dbName) + ".");
+        tableName = quoteIdentifier(tableName);
+        if (this instanceof PostgresDialect) {
+            schema = StrUtil.isBlank(schema) ? "public." : (quoteIdentifier(schema) + ".");
+            tablePath = StrUtil.format("{}{}{}", dbName, schema, tableName);
+        } else if (this instanceof MySQLDialect) {
+            tablePath = StrUtil.format("{}{}", dbName, tableName);
+        }
+        return "SELECT "
+                + selectExpressions
+                + " FROM "
+                + tablePath
+                + ((conditionFields.length > 0) ? (" WHERE " + fieldExpressions) : "");
     }
 }
