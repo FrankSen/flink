@@ -42,15 +42,6 @@ public class MySQLCatalog extends AbstractJdbcCatalog {
 
     private static final Logger LOG = LoggerFactory.getLogger(MySQLCatalog.class);
 
-    public MySQLCatalog(
-            String catalogName,
-            String defaultDatabase,
-            String username,
-            String pwd,
-            String baseUrl) {
-        super(catalogName, defaultDatabase, username, pwd, baseUrl);
-    }
-
     private static final Set<String> builtinDatabases = new HashSet<String>() {};
 
     Map<String, List<String>> tablesMap;
@@ -121,6 +112,16 @@ public class MySQLCatalog extends AbstractJdbcCatalog {
 
     public static final String MYSQL_LONGBLOB = "LONGBLOB";
 
+    public MySQLCatalog(
+            String catalogName,
+            String defaultDatabase,
+            String username,
+            String pwd,
+            String baseUrl) {
+        super(catalogName, defaultDatabase, username, pwd, baseUrl);
+        this.tablesMap = new HashMap<>();
+    }
+
     @Override
     public List<String> listDatabases() throws CatalogException {
         List<String> mysqlDatabases = new ArrayList<>();
@@ -157,7 +158,7 @@ public class MySQLCatalog extends AbstractJdbcCatalog {
         try (Connection conn = DriverManager.getConnection(baseUrl, username, pwd)) {
             PreparedStatement preparedStatement =
                     conn.prepareStatement(
-                            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.`tables` where `table_schema` = ?");
+                            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.`tables` where `table_schema` = ?;");
             preparedStatement.setString(1, databaseName);
             ResultSet rs = preparedStatement.executeQuery();
             listTables = new ArrayList<>();
@@ -193,12 +194,13 @@ public class MySQLCatalog extends AbstractJdbcCatalog {
             ResultSetMetaData rsMetaData = rs.getMetaData();
             String[] names = new String[rsMetaData.getColumnCount()];
             DataType[] dataTypes = new DataType[rsMetaData.getColumnCount()];
-            for (int i = 1; i < rsMetaData.getColumnCount(); i++) {
+            for (int i = 1; i <= rsMetaData.getColumnCount(); i++) {
                 names[i - 1] = rsMetaData.getColumnName(i);
                 dataTypes[i - 1] = fromJdbcType(rsMetaData, i);
                 if (rsMetaData.isNullable(i) == 0) dataTypes[i - 1] = dataTypes[i - 1].notNull();
             }
-            TableSchema.Builder tableBuilder = new TableSchema.Builder().fields(names, dataTypes);
+            LOG.info("table names: {}, dataTypes: {}", names, dataTypes);
+            TableSchema.Builder tableBuilder = (new TableSchema.Builder()).fields(names, dataTypes);
             primaryKey.ifPresent(
                     pk ->
                             tableBuilder.primaryKey(
@@ -223,63 +225,63 @@ public class MySQLCatalog extends AbstractJdbcCatalog {
         int precision = rsMetaData.getPrecision(i);
         int scale = rsMetaData.getScale(i);
         switch (mysqlColumnType) {
-            case "TINYINT":
+            case MYSQL_TINYINT:
                 if (1 == precision) return DataTypes.BOOLEAN();
                 return DataTypes.TINYINT();
-            case "BIT":
+            case MYSQL_BIT:
                 if (1 == precision) return DataTypes.BOOLEAN();
                 return DataTypes.BYTES();
-            case "SMALLINT":
+            case MYSQL_SMALLINT:
                 return DataTypes.SMALLINT();
-            case "TINYINT UNSIGNED":
+            case MYSQL_TINYINT_UNSIGNED:
                 return DataTypes.SMALLINT();
-            case "INT":
+            case MYSQL_INT:
                 return DataTypes.INT();
-            case "MEDIUMINT":
+            case MYSQL_MEDIUMINT:
                 return DataTypes.INT();
-            case "SMALLINT UNSIGNED":
+            case MYSQL_SMALLINT_UNSIGNED:
                 return DataTypes.INT();
-            case "BIGINT":
+            case MYSQL_BIGINT:
                 return DataTypes.BIGINT();
-            case "INT UNSIGNED":
+            case MYSQL_INT_UNSIGNED:
                 return DataTypes.BIGINT();
-            case "BIGINT UNSIGNED":
+            case MYSQL_BIGINT_UNSIGNED:
                 return DataTypes.DECIMAL(20, 0);
-            case "FLOAT":
+            case MYSQL_FLOAT:
                 return DataTypes.FLOAT();
-            case "DOUBLE":
+            case MYSQL_DOUBLE:
                 return DataTypes.DOUBLE();
-            case "NUMERIC":
-            case "DECIMAL":
-            case "DECIMAL UNSIGNED":
+            case MYSQL_NUMERIC:
+            case MYSQL_DECIMAL:
+            case MYSQL_DECIMAL_UNSIGNED:
                 if (precision <= 38) return DataTypes.DECIMAL(precision, scale);
                 return DataTypes.STRING();
-            case "BOOLEAN":
+            case MYSQL_BOOLEAN:
                 return DataTypes.BOOLEAN();
-            case "DATE":
+            case MYSQL_DATE:
                 return DataTypes.DATE();
-            case "TIME":
+            case MYSQL_TIME:
                 return DataTypes.TIME(scale);
-            case "DATETIME":
+            case MYSQL_DATETIME:
                 return DataTypes.TIMESTAMP(scale);
-            case "CHAR":
+            case MYSQL_CHAR:
                 return DataTypes.CHAR(precision);
-            case "VARCHAR":
+            case MYSQL_VARCHAR:
                 return DataTypes.CHAR(precision);
-            case "TEXT":
-            case "TINYTEXT":
-            case "MEDIUMTEXT":
-            case "LONGTEXT":
-            case "JSON":
-            case "TINYBLOB":
-            case "BLOB":
-            case "MEDIUMBLOB":
-            case "LONGBLOB":
+            case MYSQL_TEXT:
+            case MYSQL_TINYTEXT:
+            case MYSQL_MEDIUMTEXT:
+            case MYSQL_LONGTEXT:
+            case MYSQL_JSON:
+            case MYSQL_TINYBLOB:
+            case MYSQL_BLOB:
+            case MYSQL_MEDIUMBLOB:
+            case MYSQL_LONGBLOB:
                 return DataTypes.STRING();
-            case "TIMESTAMP":
+            case MYSQL_TIMESTAMP:
                 return DataTypes.TIMESTAMP(3);
-            case "VARBINARY":
-            case "BINARY":
+            case MYSQL_VARBINARY:
+            case MYSQL_BINARY:
                 return DataTypes.BYTES();
         }
         throw new UnsupportedOperationException(
