@@ -28,6 +28,8 @@ import javax.annotation.concurrent.GuardedBy;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 
@@ -97,19 +99,25 @@ class SortMergeSubpartitionReader
     }
 
     private void addBuffer(Buffer buffer) {
-        boolean notifyAvailable;
+        boolean notifyAvailable = false;
+        boolean needRecycleBuffer = false;
+
         synchronized (lock) {
             if (isReleased) {
-                buffer.recycleBuffer();
-                throw new IllegalStateException("Subpartition reader has been already released.");
-            }
+                needRecycleBuffer = true;
+            } else {
+                notifyAvailable = buffersRead.isEmpty();
 
-            notifyAvailable = buffersRead.isEmpty();
-
-            buffersRead.add(buffer);
-            if (buffer.isBuffer()) {
-                ++dataBufferBacklog;
+                buffersRead.add(buffer);
+                if (buffer.isBuffer()) {
+                    ++dataBufferBacklog;
+                }
             }
+        }
+
+        if (needRecycleBuffer) {
+            buffer.recycleBuffer();
+            throw new IllegalStateException("Subpartition reader has been already released.");
         }
 
         if (notifyAvailable) {
@@ -171,6 +179,7 @@ class SortMergeSubpartitionReader
     }
 
     private void releaseInternal(@Nullable Throwable throwable) {
+        List<Buffer> buffersToRecycle;
         synchronized (lock) {
             if (isReleased) {
                 return;
@@ -180,12 +189,12 @@ class SortMergeSubpartitionReader
             if (failureCause == null) {
                 failureCause = throwable;
             }
-
-            for (Buffer buffer : buffersRead) {
-                buffer.recycleBuffer();
-            }
+            buffersToRecycle = new ArrayList<>(buffersRead);
             buffersRead.clear();
+            dataBufferBacklog = 0;
         }
+        buffersToRecycle.forEach(Buffer::recycleBuffer);
+        buffersToRecycle.clear();
 
         releaseFuture.complete(null);
     }
@@ -203,6 +212,12 @@ class SortMergeSubpartitionReader
     }
 
     @Override
+    public void acknowledgeAllDataProcessed() {
+        // in case of bounded partitions there is no upstream to acknowledge, we simply ignore
+        // the ack, as there are no checkpoints
+    }
+
+    @Override
     public Throwable getFailureCause() {
         synchronized (lock) {
             return failureCause;
@@ -210,17 +225,17 @@ class SortMergeSubpartitionReader
     }
 
     @Override
-    public boolean isAvailable(int numCreditsAvailable) {
+    public AvailabilityWithBacklog getAvailabilityAndBacklog(int numCreditsAvailable) {
         synchronized (lock) {
+            boolean isAvailable;
             if (isReleased) {
-                return true;
+                isAvailable = true;
+            } else if (buffersRead.isEmpty()) {
+                isAvailable = false;
+            } else {
+                isAvailable = numCreditsAvailable > 0 || !buffersRead.peek().isBuffer();
             }
-
-            if (buffersRead.isEmpty()) {
-                return false;
-            }
-
-            return numCreditsAvailable > 0 || !buffersRead.peek().isBuffer();
+            return new AvailabilityWithBacklog(isAvailable, dataBufferBacklog);
         }
     }
 
@@ -228,4 +243,14 @@ class SortMergeSubpartitionReader
     public int unsynchronizedGetNumberOfQueuedBuffers() {
         return Math.max(0, buffersRead.size());
     }
+
+    @Override
+    public int getNumberOfQueuedBuffers() {
+        synchronized (lock) {
+            return buffersRead.size();
+        }
+    }
+
+    @Override
+    public void notifyNewBufferSize(int newBufferSize) {}
 }

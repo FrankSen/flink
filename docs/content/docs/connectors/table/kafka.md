@@ -1,3 +1,4 @@
+
 ---
 title: Kafka
 weight: 3
@@ -214,10 +215,10 @@ Connector Options
     </tr>
     <tr>
       <td><h5>properties.group.id</h5></td>
-      <td>required by source</td>
+      <td>optional for source, not applicable for sink</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>String</td>
-      <td>The id of the consumer group for Kafka source, optional for Kafka sink.</td>
+      <td>The id of the consumer group for Kafka source. If group ID is not specified, an automatically generated id "KafkaSource-{tableIdentifier}" will be used.</td>
     </tr>
     <tr>
       <td><h5>properties.*</h5></td>
@@ -344,7 +345,21 @@ Connector Options
       <td>optional</td>
       <td style="word-wrap: break-word;">at-least-once</td>
       <td>String</td>
+      <td>Deprecated: Please use <code>sink.delivery-guarantee</code>.</td>
+    </tr>
+    <tr>
+      <td><h5>sink.delivery-guarantee</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">at-least-once</td>
+      <td>String</td>
       <td>Defines the delivery semantic for the Kafka sink. Valid enumerationns are <code>'at-least-once'</code>, <code>'exactly-once'</code> and <code>'none'</code>. See <a href='#consistency-guarantees'>Consistency guarantees</a> for more details. </td>
+    </tr>
+    <tr>
+      <td><h5>sink.transactional-id-prefix</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>If the delivery guarantee is configured as <code>'exactly-once'</code> this value must be set and is used a prefix for the identifier of all opened Kafka transactions.</td>
     </tr>
     <tr>
       <td><h5>sink.parallelism</h5></td>
@@ -524,7 +539,7 @@ By default, a Kafka sink ingests data with at-least-once guarantees into a Kafka
 
 With Flink's checkpointing enabled, the `kafka` connector can provide exactly-once delivery guarantees.
 
-Besides enabling Flink's checkpointing, you can also choose three different modes of operating chosen by passing appropriate `sink.semantic` option:
+Besides enabling Flink's checkpointing, you can also choose three different modes of operating chosen by passing appropriate `sink.delivery-guarantee` option:
 
  * `none`: Flink will not guarantee anything. Produced records can be lost or they can be duplicated.
  * `at-least-once` (default setting): This guarantees that no records will be lost (although they can be duplicated).
@@ -546,6 +561,58 @@ option in the table configuration.
 
 Please refer to [Kafka watermark strategies]({{< ref "docs/dev/datastream/event-time/generating_watermarks" >}}#watermark-strategies-and-the-kafka-connector)
 for more details.
+
+### Security
+In order to enable security configurations including encryption and authentication, you just need to setup security
+configurations with "properties." prefix in table options. The code snippet below shows configuring Kafka table to
+use PLAIN as SASL mechanism and provide JAAS configuration:
+```sql
+CREATE TABLE KafkaTable (
+  `user_id` BIGINT,
+  `item_id` BIGINT,
+  `behavior` STRING,
+  `ts` TIMESTAMP(3) METADATA FROM 'timestamp'
+) WITH (
+  'connector' = 'kafka',
+  ...
+  'properties.security.protocol' = 'SASL_PLAINTEXT',
+  'properties.sasl.mechanism' = 'PLAIN',
+  'properties.sasl.jaas.config' = 'org.apache.kafka.common.security.plain.PlainLoginModule required username=\"username\" password=\"password\";'
+)
+```
+For a more complex example, use SASL_SSL as the security protocol and use SCRAM-SHA-256 as SASL mechanism:
+```sql
+CREATE TABLE KafkaTable (
+  `user_id` BIGINT,
+  `item_id` BIGINT,
+  `behavior` STRING,
+  `ts` TIMESTAMP(3) METADATA FROM 'timestamp'
+) WITH (
+  'connector' = 'kafka',
+  ...
+  'properties.security.protocol' = 'SASL_SSL',
+  /* SSL configurations */
+  /* Configure the path of truststore (CA) provided by the server */
+  'properties.ssl.truststore.location' = '/path/to/kafka.client.truststore.jks',
+  'properties.ssl.truststore.password' = 'test1234',
+  /* Configure the path of keystore (private key) if client authentication is required */
+  'properties.ssl.keystore.location' = '/path/to/kafka.client.keystore.jks',
+  'properties.ssl.keystore.password' = 'test1234',
+  /* SASL configurations */
+  /* Set SASL mechanism as SCRAM-SHA-256 */
+  'properties.sasl.mechanism' = 'SCRAM-SHA-256',
+  /* Set JAAS configurations */
+  'properties.sasl.jaas.config' = 'org.apache.kafka.common.security.scram.ScramLoginModule required username=\"username\" password=\"password\";'
+)
+```
+
+Please note that the class path of the login module in `sasl.jaas.config` might be different if you relocate Kafka
+client dependencies, so you may need to rewrite it with the actual class path of the module in the JAR.
+For example if you are using SQL client JAR, which has relocate Kafka client dependencies to `org.apache.flink.kafka.shaded.org.apache.kafka`,
+the path of plain login module should be `org.apache.flink.kafka.shaded.org.apache.kafka.common.security.plain.PlainLoginModule` instead.
+
+For detailed explanations of security configurations, please refer to
+<a href="https://kafka.apache.org/documentation/#security">the "Security" section in Apache Kafka documentation</a>.
 
 Data Type Mapping
 ----------------

@@ -146,7 +146,8 @@ public class UnalignedCheckpointCompatibilityITCase extends TestLogger {
     private Tuple2<String, Map<String, Object>> runAndTakeSavepoint() throws Exception {
         JobClient jobClient = submitJobInitially(env(startAligned, 0));
         waitForAllTaskRunning(
-                () -> miniCluster.getMiniCluster().getExecutionGraph(jobClient.getJobID()).get());
+                () -> miniCluster.getMiniCluster().getExecutionGraph(jobClient.getJobID()).get(),
+                false);
         Thread.sleep(FIRST_RUN_BACKPRESSURE_MS); // wait for some backpressure from sink
 
         Future<Map<String, Object>> accFuture =
@@ -208,7 +209,7 @@ public class UnalignedCheckpointCompatibilityITCase extends TestLogger {
         env.setRestartStrategy(new RestartStrategies.NoRestartStrategyConfiguration());
         env.getCheckpointConfig().enableUnalignedCheckpoints(!isAligned);
         env.getCheckpointConfig().setAlignmentTimeout(Duration.ZERO);
-        env.getCheckpointConfig().enableExternalizedCheckpoints(RETAIN_ON_CANCELLATION);
+        env.getCheckpointConfig().setExternalizedCheckpointCleanup(RETAIN_ON_CANCELLATION);
         if (checkpointingInterval > 0) {
             env.enableCheckpointing(checkpointingInterval);
         }

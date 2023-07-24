@@ -22,7 +22,10 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.connector.jdbc.internal.converter.JdbcRowConverter;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.ValidationException;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
+
+import cn.hutool.core.util.StrUtil;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -66,6 +69,12 @@ public interface JdbcDialect extends Serializable {
      */
     String getLimitClause(long limit);
 
+    String fromFlinkType(LogicalType paramLogicalTye);
+
+    default String getHashMod(String col, int num) {
+        return null;
+    }
+
     /**
      * Check if this dialect instance support a specific data type in table schema.
      *
@@ -89,6 +98,17 @@ public interface JdbcDialect extends Serializable {
      */
     default String quoteIdentifier(String identifier) {
         return "\"" + identifier + "\"";
+    }
+
+    /**
+     * Quotes the identifier. This is used to put quotes around the identifier in case the column
+     * name is a reserved keyword, or in case it contains characters that require quotes (e.g.
+     * space). Default using double quotes {@code "} to quote.
+     */
+    default String getAlterAddColumn(String tableName, String col, LogicalType type) {
+        String base = "alter table %s add %s %s NULL";
+        return String.format(
+                base, quoteIdentifier(tableName), quoteIdentifier(col), fromFlinkType(type));
     }
 
     /**
@@ -180,5 +200,61 @@ public interface JdbcDialect extends Serializable {
                 + " FROM "
                 + quoteIdentifier(tableName)
                 + (conditionFields.length > 0 ? " WHERE " + fieldExpressions : "");
+    }
+
+    default String getSelectFromStatement(
+            String schema, String tableName, String[] selectFields, String[] conditionFields) {
+        String selectExpressions =
+                Arrays.stream(selectFields)
+                        .map(this::quoteIdentifier)
+                        .collect(Collectors.joining(", "));
+        String fieldExpressions =
+                Arrays.stream(conditionFields)
+                        .map(f -> String.format("%s = :%s", new Object[] {quoteIdentifier(f), f}))
+                        .collect(Collectors.joining(" AND "));
+        String tablePath = null;
+        String dbName = "";
+        tableName = quoteIdentifier(tableName);
+        if (this instanceof PostgresDialect) {
+            schema = StrUtil.isBlank(schema) ? "public." : (quoteIdentifier(schema) + ".");
+            tablePath = StrUtil.format("{}{}{}", dbName, schema, tableName);
+        } else if (this instanceof MySQLDialect) {
+            tablePath = StrUtil.format("{}{}", dbName, tableName);
+        }
+        return "SELECT "
+                + selectExpressions
+                + " FROM "
+                + tablePath
+                + ((conditionFields.length > 0) ? (" WHERE " + fieldExpressions) : "");
+    }
+
+    default String getSelectFromStatement(
+            String dbName,
+            String schema,
+            String tableName,
+            String[] selectFields,
+            String[] conditionFields) {
+        String selectExpressions =
+                Arrays.stream(selectFields)
+                        .map(this::quoteIdentifier)
+                        .collect(Collectors.joining(", "));
+        String fieldExpressions =
+                Arrays.stream(conditionFields)
+                        .map(f -> String.format("%s = :%s", new Object[] {quoteIdentifier(f), f}))
+                        .collect(Collectors.joining(" AND "));
+        String tablePath = null;
+        dbName = StrUtil.isBlank(dbName) ? "" : (quoteIdentifier(dbName) + ".");
+        tableName = quoteIdentifier(tableName);
+        if (this instanceof PostgresDialect) {
+            schema = StrUtil.isBlank(schema) ? "public." : (quoteIdentifier(schema) + ".");
+            tablePath = StrUtil.format("{}{}{}", dbName, schema, tableName);
+        } else if (this instanceof MySQLDialect) {
+            tablePath = StrUtil.format("{}{}", dbName, tableName);
+        }
+        return "SELECT "
+                + selectExpressions
+                + " FROM "
+                + tablePath
+                + ((conditionFields.length > 0) ? (" WHERE " + fieldExpressions) : "");
     }
 }

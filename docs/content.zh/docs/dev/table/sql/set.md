@@ -3,7 +3,7 @@ title: "SET 语句"
 weight: 14
 type: docs
 aliases:
-  - /dev/table/sql/set.html
+  - /zh/dev/table/sql/set.html
 ---
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
@@ -43,11 +43,11 @@ The following examples show how to run a `SET` statement in SQL CLI.
 {{< tabs "set" >}}
 {{< tab "SQL CLI" >}}
 ```sql
-Flink SQL> SET table.planner = blink;
+Flink SQL> SET 'table.local-time-zone' = 'Europe/Berlin';
 [INFO] Session property has been set.
 
 Flink SQL> SET;
-table.planner=blink;
+'table.local-time-zone' = 'Europe/Berlin'
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -55,9 +55,9 @@ table.planner=blink;
 ## Syntax
 
 ```sql
-SET (key = value)?
+SET ('key' = 'value')?
 ```
 
-If no key and value are specified, it just print all the properties. Otherwise, set the key with specified value.
+If no key and value are specified, it just prints all the properties. Otherwise, set the key with specified value.
 
 {{< top >}}

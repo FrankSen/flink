@@ -160,6 +160,25 @@ public class TimestampITCase extends TestLogger {
     }
 
     @Test
+    public void testSelfUnionWatermarkPropagation() throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setParallelism(1);
+        DataStream<Integer> dataStream1 = env.fromElements(1, 2, 3);
+
+        dataStream1
+                .union(dataStream1)
+                .transform(
+                        "Custom Operator", BasicTypeInfo.INT_TYPE_INFO, new CustomOperator(false))
+                .addSink(new DiscardingSink<>());
+        env.execute();
+
+        assertEquals(
+                Watermark.MAX_WATERMARK,
+                CustomOperator.finalWatermarks[0].get(
+                        CustomOperator.finalWatermarks[0].size() - 1));
+    }
+
+    @Test
     public void testWatermarkPropagationNoFinalWatermarkOnStop() throws Exception {
 
         // for this test to work, we need to be sure that no other jobs are being executed
@@ -202,7 +221,7 @@ public class TimestampITCase extends TestLogger {
 
                             JobID id = running.get(0);
 
-                            waitUntilAllTasksAreRunning(CLUSTER.getRestAddres(), id);
+                            waitUntilAllTasksAreRunning(CLUSTER.getRestClusterClient(), id);
                             // send stop until the job is stopped
                             do {
                                 try {
@@ -639,7 +658,8 @@ public class TimestampITCase extends TestLogger {
 
     /**
      * This verifies that an event time source works when setting stream time characteristic to
-     * processing time. In this case, the watermarks should just be swallowed.
+     * processing time. In this case, the watermarks should just be swallowed apart from the last
+     * final watermark marking the end of time.
      */
     @Test
     public void testEventTimeSourceWithProcessingTime() throws Exception {
@@ -658,7 +678,8 @@ public class TimestampITCase extends TestLogger {
 
         // verify that we don't get any watermarks, the source is used as watermark source in
         // other tests, so it normally emits watermarks
-        Assert.assertTrue(CustomOperator.finalWatermarks[0].size() == 0);
+        Assert.assertTrue(CustomOperator.finalWatermarks[0].size() == 1);
+        Assert.assertEquals(Watermark.MAX_WATERMARK, CustomOperator.finalWatermarks[0].get(0));
     }
 
     @Test

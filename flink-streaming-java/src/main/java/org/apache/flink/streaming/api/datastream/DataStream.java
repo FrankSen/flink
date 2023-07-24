@@ -1244,7 +1244,7 @@ public class DataStream<T> {
 
         DataStreamSink<T> sink = new DataStreamSink<>(this, sinkOperator);
 
-        getExecutionEnvironment().addOperator(sink.getTransformation());
+        getExecutionEnvironment().addOperator(sink.getLegacyTransformation());
         return sink;
     }
 
@@ -1317,7 +1317,7 @@ public class DataStream<T> {
         try (ClientAndIterator<T> clientAndIterator =
                 executeAndCollectWithClient(jobExecutionName)) {
             List<T> results = new ArrayList<>(limit);
-            while (clientAndIterator.iterator.hasNext() && limit > 0) {
+            while (limit > 0 && clientAndIterator.iterator.hasNext()) {
                 results.add(clientAndIterator.iterator.next());
                 limit--;
             }

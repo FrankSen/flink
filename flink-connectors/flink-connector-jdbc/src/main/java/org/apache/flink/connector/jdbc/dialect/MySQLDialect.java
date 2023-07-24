@@ -20,6 +20,7 @@ package org.apache.flink.connector.jdbc.dialect;
 
 import org.apache.flink.connector.jdbc.internal.converter.JdbcRowConverter;
 import org.apache.flink.connector.jdbc.internal.converter.MySQLRowConverter;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 
@@ -59,8 +60,13 @@ public class MySQLDialect extends AbstractDialect {
     }
 
     @Override
+    public String fromFlinkType(LogicalType paramLogicalTye) {
+        return null;
+    }
+
+    @Override
     public Optional<String> defaultDriverName() {
-        return Optional.of("com.mysql.jdbc.Driver");
+        return Optional.of("com.mysql.cj.jdbc.Driver");
     }
 
     @Override

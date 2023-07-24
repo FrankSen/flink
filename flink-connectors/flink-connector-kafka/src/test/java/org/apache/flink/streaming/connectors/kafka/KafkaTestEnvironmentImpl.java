@@ -18,11 +18,11 @@
 package org.apache.flink.streaming.connectors.kafka;
 
 import org.apache.flink.api.common.serialization.SerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaUtil;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.KafkaSourceBuilder;
 import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
 import org.apache.flink.core.testutils.CommonTestUtils;
-import org.apache.flink.networking.NetworkFailuresProxy;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.operators.StreamSink;
@@ -54,11 +54,9 @@ import java.io.File;
 import java.net.BindException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -108,11 +106,10 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
         this.config = config;
 
         File tempDir = new File(System.getProperty("java.io.tmpdir"));
-        tmpZkDir = new File(tempDir, "kafkaITcase-zk-dir-" + (UUID.randomUUID().toString()));
+        tmpZkDir = new File(tempDir, "kafkaITcase-zk-dir-" + (UUID.randomUUID()));
         assertTrue("cannot create zookeeper temp dir", tmpZkDir.mkdirs());
 
-        tmpKafkaParent =
-                new File(tempDir, "kafkaITcase-kafka-dir-" + (UUID.randomUUID().toString()));
+        tmpKafkaParent = new File(tempDir, "kafkaITcase-kafka-dir-" + (UUID.randomUUID()));
         assertTrue("cannot create kafka temp dir", tmpKafkaParent.mkdirs());
 
         tmpKafkaDirs = new ArrayList<>(config.getKafkaServersNumber());
@@ -279,32 +276,10 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <K, V> Collection<ConsumerRecord<K, V>> getAllRecordsFromTopic(
-            Properties properties, String topic, int partition, long timeout) {
-        List<ConsumerRecord<K, V>> result = new ArrayList<>();
-
-        try (KafkaConsumer<K, V> consumer = new KafkaConsumer<>(properties)) {
-            consumer.assign(Arrays.asList(new TopicPartition(topic, partition)));
-
-            while (true) {
-                boolean processedAtLeastOneRecord = false;
-
-                // wait for new records with timeout and break the loop if we didn't get any
-                Iterator<ConsumerRecord<K, V>> iterator = consumer.poll(timeout).iterator();
-                while (iterator.hasNext()) {
-                    ConsumerRecord<K, V> record = iterator.next();
-                    result.add(record);
-                    processedAtLeastOneRecord = true;
-                }
-
-                if (!processedAtLeastOneRecord) {
-                    break;
-                }
-            }
-            consumer.commitSync();
-        }
-
-        return UnmodifiableList.decorate(result);
+            Properties properties, String topic) {
+        return UnmodifiableList.decorate(KafkaUtil.drainAllRecordsFromTopic(topic, properties));
     }
 
     @Override
@@ -378,10 +353,11 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
 
     @Override
     public int getLeaderToShutDown(String topic) throws Exception {
-        AdminClient client = AdminClient.create(getStandardProperties());
-        TopicDescription result =
-                client.describeTopics(Collections.singleton(topic)).all().get().get(topic);
-        return result.partitions().get(0).leader().id();
+        try (final AdminClient client = AdminClient.create(getStandardProperties())) {
+            TopicDescription result =
+                    client.describeTopics(Collections.singleton(topic)).all().get().get(topic);
+            return result.partitions().get(0).leader().id();
+        }
     }
 
     @Override
@@ -399,6 +375,7 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
         for (KafkaServer broker : brokers) {
             if (broker != null) {
                 broker.shutdown();
+                broker.awaitShutdown();
             }
         }
         brokers.clear();
@@ -428,7 +405,6 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
                 // ignore
             }
         }
-        super.shutdown();
     }
 
     protected KafkaServer getKafkaServer(int brokerId, File tmpFolder) throws Exception {
@@ -443,6 +419,8 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
         kafkaProperties.put("replica.fetch.max.bytes", String.valueOf(50 * 1024 * 1024));
         kafkaProperties.put(
                 "transaction.max.timeout.ms", Integer.toString(1000 * 60 * 60 * 2)); // 2hours
+        // Disable log deletion to prevent records from being deleted during test run
+        kafkaProperties.put("log.retention.ms", "-1");
 
         // for CI stability, increase zookeeper session timeout
         kafkaProperties.put("zookeeper.session.timeout.ms", zkTimeout);
@@ -456,11 +434,6 @@ public class KafkaTestEnvironmentImpl extends KafkaTestEnvironment {
         for (int i = 1; i <= numTries; i++) {
             int kafkaPort = NetUtils.getAvailablePort();
             kafkaProperties.put("port", Integer.toString(kafkaPort));
-
-            if (config.isHideKafkaBehindProxy()) {
-                NetworkFailuresProxy proxy = createProxy(KAFKA_HOST, kafkaPort);
-                kafkaProperties.put("advertised.port", proxy.getLocalPort());
-            }
 
             // to support secure kafka cluster
             if (config.isSecureMode()) {

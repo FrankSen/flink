@@ -34,9 +34,9 @@ import org.junit.Test;
 import java.util.UUID;
 
 import static org.apache.flink.kubernetes.highavailability.KubernetesHighAvailabilityTestBase.LEADER_CONFIGMAP_NAME;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertThat;
 
 /**
  * IT Tests for the {@link KubernetesStateHandleStore}. We expect only the leader could update the
@@ -68,8 +68,8 @@ public class KubernetesStateHandleStoreITCase extends TestLogger {
                 new TestingLeaderCallbackHandler[leaderNum];
 
         @SuppressWarnings("unchecked")
-        final KubernetesStateHandleStore<Long>[] stateHandleStores =
-                new KubernetesStateHandleStore[leaderNum];
+        final KubernetesStateHandleStore<TestingLongStateHandleHelper.LongStateHandle>[]
+                stateHandleStores = new KubernetesStateHandleStore[leaderNum];
 
         try {
             for (int i = 0; i < leaderNum; i++) {
@@ -103,17 +103,19 @@ public class KubernetesStateHandleStoreITCase extends TestLogger {
                 if (leaderCallbackHandlers[i].getLockIdentity().equals(lockIdentity)) {
                     expectedState = (long) i;
                 }
-                stateHandleStores[i].addAndLock(KEY, (long) i);
+                stateHandleStores[i].addAndLock(
+                        KEY, new TestingLongStateHandleHelper.LongStateHandle(i));
             }
 
             // Only the leader could add successfully
             assertThat(expectedState, is(notNullValue()));
             assertThat(stateHandleStores[0].getAllAndLock().size(), is(1));
             assertThat(
-                    stateHandleStores[0].getAllAndLock().get(0).f0.retrieveState(),
+                    stateHandleStores[0].getAllAndLock().get(0).f0.retrieveState().getValue(),
                     is(expectedState));
             assertThat(stateHandleStores[0].getAllAndLock().get(0).f1, is(KEY));
         } finally {
+            TestingLongStateHandleHelper.clearGlobalState();
             // Cleanup the resources
             for (int i = 0; i < leaderNum; i++) {
                 if (leaderElectors[i] != null) {

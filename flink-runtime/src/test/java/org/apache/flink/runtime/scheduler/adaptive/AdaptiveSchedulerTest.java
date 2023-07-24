@@ -57,12 +57,13 @@ import org.apache.flink.runtime.jobmaster.slotpool.DefaultAllocatedSlotPool;
 import org.apache.flink.runtime.jobmaster.slotpool.DefaultDeclarativeSlotPool;
 import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.runtime.metrics.MetricRegistry;
-import org.apache.flink.runtime.metrics.groups.JobManagerJobMetricGroup;
+import org.apache.flink.runtime.metrics.groups.JobManagerMetricGroup;
 import org.apache.flink.runtime.metrics.util.TestingMetricRegistry;
 import org.apache.flink.runtime.operators.coordination.CoordinationRequest;
 import org.apache.flink.runtime.operators.coordination.TaskNotRunningException;
 import org.apache.flink.runtime.operators.coordination.TestOperatorEvent;
 import org.apache.flink.runtime.rest.handler.legacy.utils.ArchivedExecutionGraphBuilder;
+import org.apache.flink.runtime.scheduler.DefaultSchedulerTest;
 import org.apache.flink.runtime.scheduler.SchedulerBase;
 import org.apache.flink.runtime.scheduler.SchedulerNG;
 import org.apache.flink.runtime.scheduler.VertexParallelismInformation;
@@ -106,7 +107,7 @@ import static org.apache.flink.runtime.executiongraph.ExecutionGraphTestUtils.cr
 import static org.apache.flink.runtime.jobgraph.JobGraphTestUtils.streamingJobGraph;
 import static org.apache.flink.runtime.jobmaster.slotpool.DefaultDeclarativeSlotPoolTest.createSlotOffersForResourceRequirements;
 import static org.apache.flink.runtime.jobmaster.slotpool.SlotPoolTestUtils.offerSlots;
-import static org.apache.flink.runtime.metrics.groups.UnregisteredMetricGroups.createUnregisteredJobManagerMetricGroup;
+import static org.apache.flink.runtime.scheduler.SchedulerTestingUtils.enableCheckpointing;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.core.Is.is;
@@ -401,7 +402,7 @@ public class AdaptiveSchedulerTest extends TestLogger {
         // With this approach we don't have to make assumption as to how many
         // tasks are being scheduled.
         final boolean b =
-                mainThreadExecutor.getNonPeriodicScheduledTask().stream()
+                mainThreadExecutor.getActiveNonPeriodicScheduledTask().stream()
                         .anyMatch(
                                 scheduledTask ->
                                         scheduledTask.getDelay(TimeUnit.MINUTES)
@@ -440,11 +441,9 @@ public class AdaptiveSchedulerTest extends TestLogger {
                 new AdaptiveSchedulerBuilder(jobGraph, singleThreadMainThreadExecutor)
                         .setJobMasterConfiguration(configuration)
                         .setJobManagerJobMetricGroup(
-                                new JobManagerJobMetricGroup(
-                                        metricRegistry,
-                                        createUnregisteredJobManagerMetricGroup(),
-                                        new JobID(),
-                                        "jobName"))
+                                JobManagerMetricGroup.createJobManagerMetricGroup(
+                                                metricRegistry, "localhost")
+                                        .addJob(new JobID(), "jobName"))
                         .setDeclarativeSlotPool(declarativeSlotPool)
                         .build();
 
@@ -942,6 +941,33 @@ public class AdaptiveSchedulerTest extends TestLogger {
 
             assertThat(info.getParallelism(), is(vertex.getParallelism()));
             assertThat(info.getMaxParallelism(), is(vertex.getMaxParallelism()));
+        }
+    }
+
+    @Test
+    public void testCheckpointCleanerIsClosedAfterCheckpointServices() throws Exception {
+        final ScheduledExecutorService executorService =
+                Executors.newSingleThreadScheduledExecutor();
+        try {
+            DefaultSchedulerTest.doTestCheckpointCleanerIsClosedAfterCheckpointServices(
+                    (checkpointRecoveryFactory, checkpointCleaner) -> {
+                        final JobGraph jobGraph = createJobGraph();
+                        enableCheckpointing(jobGraph);
+                        try {
+                            return new AdaptiveSchedulerBuilder(
+                                            jobGraph,
+                                            ComponentMainThreadExecutorServiceAdapter
+                                                    .forSingleThreadExecutor(executorService))
+                                    .setCheckpointRecoveryFactory(checkpointRecoveryFactory)
+                                    .setCheckpointCleaner(checkpointCleaner)
+                                    .build();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    executorService);
+        } finally {
+            executorService.shutdownNow();
         }
     }
 

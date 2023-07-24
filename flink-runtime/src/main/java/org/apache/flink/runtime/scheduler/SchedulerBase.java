@@ -40,7 +40,6 @@ import org.apache.flink.runtime.checkpoint.CompletedCheckpoint;
 import org.apache.flink.runtime.checkpoint.CompletedCheckpointStore;
 import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.concurrent.ComponentMainThreadExecutor;
-import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptorFactory;
 import org.apache.flink.runtime.execution.ExecutionState;
 import org.apache.flink.runtime.executiongraph.ArchivedExecutionGraph;
@@ -88,6 +87,7 @@ import org.apache.flink.runtime.util.IntArrayList;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.IterableUtils;
+import org.apache.flink.util.concurrent.FutureUtils;
 
 import org.slf4j.Logger;
 
@@ -157,6 +157,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
             final Executor ioExecutor,
             final Configuration jobMasterConfiguration,
             final ClassLoader userCodeLoader,
+            final CheckpointsCleaner checkpointsCleaner,
             final CheckpointRecoveryFactory checkpointRecoveryFactory,
             final JobManagerJobMetricGroup jobManagerJobMetricGroup,
             final ExecutionVertexVersioner executionVertexVersioner,
@@ -174,7 +175,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.executionVertexVersioner = checkNotNull(executionVertexVersioner);
         this.mainThreadExecutor = mainThreadExecutor;
 
-        this.checkpointsCleaner = new CheckpointsCleaner();
+        this.checkpointsCleaner = checkpointsCleaner;
         this.completedCheckpointStore =
                 SchedulerUtils.createCompletedCheckpointStoreIfCheckpointingIsEnabled(
                         jobGraph,
@@ -195,8 +196,6 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                         mainThreadExecutor,
                         jobStatusListener);
 
-        registerShutDownCheckpointServicesOnExecutionGraphTermination(executionGraph);
-
         this.schedulingTopology = executionGraph.getSchedulingTopology();
 
         stateLocationRetriever =
@@ -216,12 +215,6 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         this.exceptionHistory =
                 new BoundedFIFOQueue<>(
                         jobMasterConfiguration.getInteger(WebOptions.MAX_EXCEPTION_HISTORY_SIZE));
-    }
-
-    private void registerShutDownCheckpointServicesOnExecutionGraphTermination(
-            ExecutionGraph executionGraph) {
-        FutureUtils.assertNoException(
-                executionGraph.getTerminationFuture().thenAccept(this::shutDownCheckpointServices));
     }
 
     private void shutDownCheckpointServices(JobStatus jobStatus) {
@@ -498,6 +491,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
 
     protected void failJob(Throwable cause, long timestamp) {
         incrementVersionsOfAllVertices();
+        cancelAllPendingSlotRequestsInternal();
         executionGraph.failJob(cause, timestamp);
         getJobTerminationFuture().thenRun(() -> archiveGlobalFailure(cause));
     }
@@ -557,6 +551,8 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
                         .collect(Collectors.toSet()));
     }
 
+    protected abstract void cancelAllPendingSlotRequestsInternal();
+
     protected void transitionExecutionGraphState(
             final JobStatus current, final JobStatus newState) {
         executionGraph.transitionState(current, newState);
@@ -603,11 +599,21 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
 
         final FlinkException cause = new FlinkException("Scheduler is being stopped.");
 
+        final CompletableFuture<Void> checkpointServicesShutdownFuture =
+                FutureUtils.composeAfterwards(
+                        executionGraph
+                                .getTerminationFuture()
+                                .thenAcceptAsync(
+                                        this::shutDownCheckpointServices, getMainThreadExecutor()),
+                        checkpointsCleaner::closeAsync);
+
+        FutureUtils.assertNoException(checkpointServicesShutdownFuture);
+
         incrementVersionsOfAllVertices();
+        cancelAllPendingSlotRequestsInternal();
         executionGraph.suspend(cause);
         operatorCoordinatorHandler.disposeAllOperatorCoordinators();
-
-        return CompletableFuture.completedFuture(null);
+        return checkpointServicesShutdownFuture;
     }
 
     @Override
@@ -615,6 +621,7 @@ public abstract class SchedulerBase implements SchedulerNG, CheckpointScheduling
         mainThreadExecutor.assertRunningInMainThread();
 
         incrementVersionsOfAllVertices();
+        cancelAllPendingSlotRequestsInternal();
         executionGraph.cancel();
     }
 

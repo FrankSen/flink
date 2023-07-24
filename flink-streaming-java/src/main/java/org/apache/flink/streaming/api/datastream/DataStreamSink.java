@@ -21,7 +21,9 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.Public;
 import org.apache.flink.annotation.PublicEvolving;
 import org.apache.flink.api.common.operators.ResourceSpec;
+import org.apache.flink.api.common.operators.SlotSharingGroup;
 import org.apache.flink.api.connector.sink.Sink;
+import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.StreamSink;
 import org.apache.flink.streaming.api.transformations.LegacySinkTransformation;
@@ -63,7 +65,12 @@ public class DataStreamSink<T> {
 
     /** Returns the transformation that contains the actual sink operator of this sink. */
     @Internal
-    public LegacySinkTransformation<T> getTransformation() {
+    public Transformation<T> getTransformation() {
+        return transformation;
+    }
+
+    @Internal
+    public LegacySinkTransformation<T> getLegacyTransformation() {
         if (transformation instanceof LegacySinkTransformation) {
             return (LegacySinkTransformation<T>) transformation;
         } else {
@@ -202,6 +209,24 @@ public class DataStreamSink<T> {
      */
     @PublicEvolving
     public DataStreamSink<T> slotSharingGroup(String slotSharingGroup) {
+        transformation.setSlotSharingGroup(slotSharingGroup);
+        return this;
+    }
+
+    /**
+     * Sets the slot sharing group of this operation. Parallel instances of operations that are in
+     * the same slot sharing group will be co-located in the same TaskManager slot, if possible.
+     *
+     * <p>Operations inherit the slot sharing group of input operations if all input operations are
+     * in the same slot sharing group and no slot sharing group was explicitly specified.
+     *
+     * <p>Initially an operation is in the default slot sharing group. An operation can be put into
+     * the default group explicitly by setting the slot sharing group with name {@code "default"}.
+     *
+     * @param slotSharingGroup which contains name and its resource spec.
+     */
+    @PublicEvolving
+    public DataStreamSink<T> slotSharingGroup(SlotSharingGroup slotSharingGroup) {
         transformation.setSlotSharingGroup(slotSharingGroup);
         return this;
     }

@@ -26,6 +26,7 @@ import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.core.memory.MemorySegmentProvider;
 import org.apache.flink.runtime.io.AvailabilityProvider;
+import org.apache.flink.runtime.io.network.partition.consumer.RemoteInputChannel;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.MathUtils;
 import org.apache.flink.util.Preconditions;
@@ -149,35 +150,75 @@ public class NetworkBufferPool
                 segmentSize);
     }
 
+    /**
+     * Different from {@link #requestUnpooledMemorySegments} for unpooled segments allocation. This
+     * method and the below {@link #requestPooledMemorySegmentsBlocking} method are designed to be
+     * used from {@link LocalBufferPool} for pooled memory segments allocation. Note that these
+     * methods for pooled memory segments requesting and recycling are prohibited from acquiring the
+     * factoryLock to avoid deadlock.
+     */
     @Nullable
-    public MemorySegment requestMemorySegment() {
+    public MemorySegment requestPooledMemorySegment() {
         synchronized (availableMemorySegments) {
             return internalRequestMemorySegment();
         }
     }
 
-    public void recycle(MemorySegment segment) {
+    public List<MemorySegment> requestPooledMemorySegmentsBlocking(int numberOfSegmentsToRequest)
+            throws IOException {
+        return internalRequestMemorySegments(numberOfSegmentsToRequest);
+    }
+
+    /**
+     * Corresponding to {@link #requestPooledMemorySegmentsBlocking} and {@link
+     * #requestPooledMemorySegment}, this method is for pooled memory segments recycling.
+     */
+    public void recyclePooledMemorySegment(MemorySegment segment) {
         // Adds the segment back to the queue, which does not immediately free the memory
         // however, since this happens when references to the global pool are also released,
         // making the availableMemorySegments queue and its contained object reclaimable
         internalRecycleMemorySegments(Collections.singleton(checkNotNull(segment)));
     }
 
+    /**
+     * Unpooled memory segments are requested directly from {@link NetworkBufferPool}, as opposed to
+     * pooled segments, that are requested through {@link BufferPool} that was created from this
+     * {@link NetworkBufferPool} (see {@link #createBufferPool}). They are used for example for
+     * exclusive {@link RemoteInputChannel} credits, that are permanently assigned to that channel,
+     * and never returned to any {@link BufferPool}. As opposed to pooled segments, when requested,
+     * unpooled segments needs to be accounted against {@link #numTotalRequiredBuffers}, which might
+     * require redistribution of the segments.
+     */
     @Override
-    public List<MemorySegment> requestMemorySegments(int numberOfSegmentsToRequest)
+    public List<MemorySegment> requestUnpooledMemorySegments(int numberOfSegmentsToRequest)
             throws IOException {
         checkArgument(
-                numberOfSegmentsToRequest > 0,
-                "Number of buffers to request must be larger than 0.");
+                numberOfSegmentsToRequest >= 0,
+                "Number of buffers to request must be non-negative.");
 
         synchronized (factoryLock) {
             if (isDestroyed) {
                 throw new IllegalStateException("Network buffer pool has already been destroyed.");
             }
 
+            if (numberOfSegmentsToRequest == 0) {
+                return Collections.emptyList();
+            }
+
             tryRedistributeBuffers(numberOfSegmentsToRequest);
         }
 
+        try {
+            return internalRequestMemorySegments(numberOfSegmentsToRequest);
+        } catch (IOException exception) {
+            revertRequiredBuffers(numberOfSegmentsToRequest);
+            ExceptionUtils.rethrowIOException(exception);
+            return null;
+        }
+    }
+
+    private List<MemorySegment> internalRequestMemorySegments(int numberOfSegmentsToRequest)
+            throws IOException {
         final List<MemorySegment> segments = new ArrayList<>(numberOfSegmentsToRequest);
         try {
             final Deadline deadline = Deadline.fromNow(requestSegmentsTimeout);
@@ -213,7 +254,7 @@ public class NetworkBufferPool
                 }
             }
         } catch (Throwable e) {
-            recycleMemorySegments(segments, numberOfSegmentsToRequest);
+            internalRecycleMemorySegments(segments);
             ExceptionUtils.rethrowIOException(e);
         }
 
@@ -231,14 +272,17 @@ public class NetworkBufferPool
         return segment;
     }
 
+    /**
+     * Corresponding to {@link #requestUnpooledMemorySegments}, this method is for unpooled memory
+     * segments recycling.
+     */
     @Override
-    public void recycleMemorySegments(Collection<MemorySegment> segments) {
-        recycleMemorySegments(segments, segments.size());
+    public void recycleUnpooledMemorySegments(Collection<MemorySegment> segments) {
+        internalRecycleMemorySegments(segments);
+        revertRequiredBuffers(segments.size());
     }
 
-    private void recycleMemorySegments(Collection<MemorySegment> segments, int size) {
-        internalRecycleMemorySegments(segments);
-
+    private void revertRequiredBuffers(int size) {
         synchronized (factoryLock) {
             numTotalRequiredBuffers -= size;
 

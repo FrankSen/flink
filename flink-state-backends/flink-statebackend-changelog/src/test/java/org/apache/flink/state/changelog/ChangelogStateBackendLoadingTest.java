@@ -19,6 +19,7 @@
 package org.apache.flink.state.changelog;
 
 import org.apache.flink.api.common.JobID;
+import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
@@ -48,6 +49,11 @@ import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
 import org.apache.flink.runtime.state.storage.JobManagerCheckpointStorage;
 import org.apache.flink.runtime.state.ttl.TtlTimeProvider;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import org.apache.flink.util.Collector;
+import org.apache.flink.util.TernaryBoolean;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -71,12 +77,12 @@ public class ChangelogStateBackendLoadingTest {
     @Test
     public void testLoadingDefault() throws Exception {
         final StateBackend backend =
-                StateBackendLoader.fromApplicationOrConfigOrDefault(null, config(), cl, null);
+                StateBackendLoader.fromApplicationOrConfigOrDefault(
+                        null, TernaryBoolean.UNDEFINED, config(), cl, null);
         final CheckpointStorage storage =
                 CheckpointStorageLoader.load(null, null, backend, config(), cl, null);
 
-        assertDelegateStateBackend(
-                backend, HashMapStateBackend.class, storage, JobManagerCheckpointStorage.class);
+        assertTrue(backend instanceof HashMapStateBackend);
     }
 
     @Test
@@ -85,7 +91,7 @@ public class ChangelogStateBackendLoadingTest {
         // "rocksdb" should not take effect
         final StateBackend backend =
                 StateBackendLoader.fromApplicationOrConfigOrDefault(
-                        appBackend, config("rocksdb"), cl, null);
+                        appBackend, TernaryBoolean.UNDEFINED, config("rocksdb", true), cl, null);
         final CheckpointStorage storage =
                 CheckpointStorageLoader.load(null, null, backend, config(), cl, null);
 
@@ -98,11 +104,11 @@ public class ChangelogStateBackendLoadingTest {
 
     @Test
     public void testApplicationDefinedChangelogStateBackend() throws Exception {
-        final StateBackend appBackend = new ChangelogStateBackend(new MockStateBackend());
+        final StateBackend appBackend = new MockStateBackend();
         // "rocksdb" should not take effect
         final StateBackend backend =
                 StateBackendLoader.fromApplicationOrConfigOrDefault(
-                        appBackend, config("rocksdb"), cl, null);
+                        appBackend, TernaryBoolean.TRUE, config("rocksdb", false), cl, null);
         final CheckpointStorage storage =
                 CheckpointStorageLoader.load(null, null, backend, config(), cl, null);
 
@@ -113,13 +119,34 @@ public class ChangelogStateBackendLoadingTest {
                         .isConfigUpdated());
     }
 
+    @Test
+    public void testApplicationEnableChangelogStateBackend() throws Exception {
+        final StateBackend backend =
+                StateBackendLoader.fromApplicationOrConfigOrDefault(
+                        null, TernaryBoolean.TRUE, config(false), cl, null);
+        final CheckpointStorage storage =
+                CheckpointStorageLoader.load(null, null, backend, config(), cl, null);
+
+        assertDelegateStateBackend(
+                backend, HashMapStateBackend.class, storage, JobManagerCheckpointStorage.class);
+    }
+
+    @Test
+    public void testApplicationDisableChangelogStateBackend() throws Exception {
+        final StateBackend backend =
+                StateBackendLoader.fromApplicationOrConfigOrDefault(
+                        null, TernaryBoolean.FALSE, config(true), cl, null);
+
+        assertTrue(backend instanceof HashMapStateBackend);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testRecursiveDelegation() throws Exception {
         final StateBackend appBackend =
                 new ChangelogStateBackend(new ChangelogStateBackend(new MockStateBackend()));
 
         StateBackendLoader.fromApplicationOrConfigOrDefault(
-                appBackend, config("rocksdb"), cl, null);
+                appBackend, TernaryBoolean.UNDEFINED, config("rocksdb", true), cl, null);
     }
 
     // ----------------------------------------------------------
@@ -183,8 +210,25 @@ public class ChangelogStateBackendLoadingTest {
                 false);
     }
 
+    private Configuration config(String stateBackend, boolean enableChangelogStateBackend) {
+        final Configuration config = new Configuration();
+        config.setBoolean(
+                CheckpointingOptions.ENABLE_STATE_CHANGE_LOG, enableChangelogStateBackend);
+        config.setString(backendKey, stateBackend);
+
+        return config;
+    }
+
+    private Configuration config(boolean enableChangelogStateBackend) {
+        final Configuration config = new Configuration();
+        config.setBoolean(
+                CheckpointingOptions.ENABLE_STATE_CHANGE_LOG, enableChangelogStateBackend);
+
+        return config;
+    }
+
     private Configuration config(String stateBackend) {
-        final Configuration config = config();
+        final Configuration config = new Configuration();
         config.setString(backendKey, stateBackend);
 
         return config;
@@ -192,7 +236,6 @@ public class ChangelogStateBackendLoadingTest {
 
     private Configuration config() {
         final Configuration config = new Configuration();
-        config.setBoolean(CheckpointingOptions.ENABLE_STATE_CHANGE_LOG, true);
 
         return config;
     }
@@ -215,19 +258,60 @@ public class ChangelogStateBackendLoadingTest {
             Class<?> storageClass,
             boolean configOnly)
             throws Exception {
-        final Configuration config = config(backendName);
+        final Configuration config = config(backendName, true);
         StateBackend backend;
+        StateBackend appBackend = StateBackendLoader.loadStateBackendFromConfig(config, cl, null);
 
         if (configOnly) {
-            backend = StateBackendLoader.loadStateBackendFromConfig(config, cl, null);
+            backend =
+                    StateBackendLoader.fromApplicationOrConfigOrDefault(
+                            null, TernaryBoolean.UNDEFINED, config, cl, null);
         } else {
-            backend = StateBackendLoader.fromApplicationOrConfigOrDefault(null, config, cl, null);
+            backend =
+                    StateBackendLoader.fromApplicationOrConfigOrDefault(
+                            appBackend, TernaryBoolean.TRUE, config, cl, null);
         }
 
         final CheckpointStorage storage =
                 CheckpointStorageLoader.load(null, null, backend, config, cl, null);
 
         assertDelegateStateBackend(backend, delegatedStateBackendClass, storage, storageClass);
+    }
+
+    private StreamExecutionEnvironment getEnvironment() {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        SourceFunction<Integer> srcFun =
+                new SourceFunction<Integer>() {
+                    private static final long serialVersionUID = 1L;
+
+                    @Override
+                    public void run(SourceContext<Integer> ctx) throws Exception {}
+
+                    @Override
+                    public void cancel() {}
+                };
+
+        SingleOutputStreamOperator<Object> operator =
+                env.addSource(srcFun)
+                        .flatMap(
+                                new FlatMapFunction<Integer, Object>() {
+
+                                    private static final long serialVersionUID = 1L;
+
+                                    @Override
+                                    public void flatMap(Integer value, Collector<Object> out)
+                                            throws Exception {}
+                                });
+        operator.setParallelism(1);
+        return env;
+    }
+
+    private StateBackend unwrapFromDelegatingStateBackend(StateBackend backend) {
+        if (backend instanceof DelegatingStateBackend) {
+            return ((DelegatingStateBackend) backend).getDelegatedStateBackend();
+        } else {
+            return backend;
+        }
     }
 
     private static class MockStateBackend extends AbstractStateBackend

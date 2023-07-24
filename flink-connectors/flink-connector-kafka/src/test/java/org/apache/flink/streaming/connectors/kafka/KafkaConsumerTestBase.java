@@ -77,11 +77,10 @@ import org.apache.flink.streaming.util.serialization.KeyedSerializationSchema;
 import org.apache.flink.streaming.util.serialization.TypeInformationKeyValueSerializationSchema;
 import org.apache.flink.test.util.SuccessException;
 import org.apache.flink.testutils.junit.RetryOnException;
-import org.apache.flink.testutils.junit.RetryRule;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.ExceptionUtils;
 
-import org.apache.flink.shaded.guava18.com.google.common.collect.Iterables;
+import org.apache.flink.shaded.guava30.com.google.common.collect.Iterables;
 
 import kafka.server.KafkaServer;
 import org.apache.commons.io.output.ByteArrayOutputStream;
@@ -94,7 +93,6 @@ import org.apache.kafka.common.errors.NotLeaderForPartitionException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 
 import javax.annotation.Nullable;
 import javax.management.MBeanServer;
@@ -132,8 +130,6 @@ import static org.junit.Assert.fail;
 @SuppressWarnings("serial")
 public abstract class KafkaConsumerTestBase extends KafkaTestBaseWithFlink {
     protected final boolean useNewSource;
-
-    @Rule public RetryRule retryRule = new RetryRule();
 
     private ClusterClient<?> client;
 
@@ -1104,8 +1100,10 @@ public abstract class KafkaConsumerTestBase extends KafkaTestBaseWithFlink {
 
         getStream(env, topic, schema, props)
                 .map(new PartitionValidatingMapper(numPartitions, 1))
+                // Job only fails after a checkpoint is taken and the necessary number of elements
+                // is seen
                 .map(new FailingIdentityMapper<Integer>(failAfterElements))
-                .addSink(new ValidatingExactlyOnceSink(totalElements))
+                .addSink(new ValidatingExactlyOnceSink(totalElements, true))
                 .setParallelism(1);
 
         FailingIdentityMapper.failedBefore = false;

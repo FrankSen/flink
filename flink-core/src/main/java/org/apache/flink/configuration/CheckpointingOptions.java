@@ -102,13 +102,43 @@ public class CheckpointingOptions {
 
     /** Whether to enable state change log. */
     @Documentation.Section(value = Documentation.Sections.COMMON_STATE_BACKENDS)
-    @Documentation.ExcludeFromDocumentation("Hidden for now")
+    @Documentation.ExcludeFromDocumentation("ChangelogBackend is under development")
     public static final ConfigOption<Boolean> ENABLE_STATE_CHANGE_LOG =
             ConfigOptions.key("state.backend.changelog.enabled")
                     .booleanType()
                     .defaultValue(false)
                     .withDescription(
-                            "Whether to enable state backend to write state changes to StateChangelog.");
+                            "Whether to enable state backend to write state changes to StateChangelog. "
+                                    + "If this config is not set explicitly, it means no preference "
+                                    + "for enabling the change log, and the value in lower config "
+                                    + "level will take effect. The default value 'false' here means "
+                                    + "if no value set (job or cluster), the change log will not be "
+                                    + "enabled.");
+
+    /**
+     * Which storage to use to store state changelog.
+     *
+     * <p>Recognized shortcut name is 'memory' from {@code
+     * InMemoryStateChangelogStorageFactory.getIdentifier()}, which is also the default value.
+     */
+    @Documentation.Section(value = Documentation.Sections.COMMON_STATE_BACKENDS)
+    @Documentation.ExcludeFromDocumentation("ChangelogBackend is under development")
+    public static final ConfigOption<String> STATE_CHANGE_LOG_STORAGE =
+            ConfigOptions.key("state.backend.changelog.storage")
+                    .stringType()
+                    .defaultValue("memory")
+                    .withDescription(
+                            Description.builder()
+                                    .text("The storage to be used to store state changelog.")
+                                    .linebreak()
+                                    .text(
+                                            "The implementation can be specified via their"
+                                                    + " shortcut name.")
+                                    .linebreak()
+                                    .text(
+                                            "The list of recognized shortcut names currently includes"
+                                                    + " 'memory' and 'filesystem'.")
+                                    .build());
 
     /** The maximum number of completed checkpoints to retain. */
     @Documentation.Section(Documentation.Sections.COMMON_STATE_BACKENDS)
@@ -150,8 +180,8 @@ public class CheckpointingOptions {
      * This option configures local recovery for this state backend. By default, local recovery is
      * deactivated.
      *
-     * <p>Local recovery currently only covers keyed state backends. Currently, MemoryStateBackend
-     * and HashMapStateBackend do not support local recovery and ignore this option.
+     * <p>Local recovery currently only covers keyed state backends (including both the
+     * EmbeddedRocksDBStateBackend and the HashMapStateBackend).
      */
     @Documentation.Section(Documentation.Sections.COMMON_STATE_BACKENDS)
     public static final ConfigOption<Boolean> LOCAL_RECOVERY =
@@ -159,8 +189,8 @@ public class CheckpointingOptions {
                     .defaultValue(false)
                     .withDescription(
                             "This option configures local recovery for this state backend. By default, local recovery is "
-                                    + "deactivated. Local recovery currently only covers keyed state backends. Currently, MemoryStateBackend and "
-                                    + "HashMapStateBackend do not support local recovery and ignore this option.");
+                                    + "deactivated. Local recovery currently only covers keyed state backends "
+                                    + "(including both the EmbeddedRocksDBStateBackend and the HashMapStateBackend).");
 
     /**
      * The config parameter defining the root directories for storing file-based state for local
@@ -175,8 +205,7 @@ public class CheckpointingOptions {
                     .noDefaultValue()
                     .withDescription(
                             "The config parameter defining the root directories for storing file-based state for local "
-                                    + "recovery. Local recovery currently only covers keyed state backends. Currently, MemoryStateBackend does "
-                                    + "not support local recovery and ignore this option");
+                                    + "recovery. Local recovery currently only covers keyed state backends.");
 
     // ------------------------------------------------------------------------
     //  Options specific to the file-system-based state backends

@@ -71,8 +71,9 @@ public abstract class AbstractJdbcCatalog extends AbstractCatalog {
 
     protected final String username;
     protected final String pwd;
-    protected final String baseUrl;
-    protected final String defaultUrl;
+    protected String baseUrl;
+    protected String defaultUrl;
+    private String schema;
 
     public AbstractJdbcCatalog(
             String catalogName,
@@ -92,6 +93,14 @@ public abstract class AbstractJdbcCatalog extends AbstractCatalog {
         this.pwd = pwd;
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
         this.defaultUrl = this.baseUrl + defaultDatabase;
+    }
+
+    public String getSchema() {
+        return schema;
+    }
+
+    public void setSchema(String schema) {
+        this.schema = schema;
     }
 
     @Override

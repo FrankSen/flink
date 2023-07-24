@@ -22,14 +22,16 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.core.testutils.FlinkMatchers;
+import org.apache.flink.runtime.persistence.StateHandleStore;
 import org.apache.flink.runtime.persistence.TestingRetrievableStateStorageHelper;
 import org.apache.flink.runtime.persistence.TestingStateHandleStore;
 import org.apache.flink.runtime.state.RetrievableStateHandle;
 import org.apache.flink.runtime.state.SharedStateRegistry;
 import org.apache.flink.runtime.state.testutils.TestCompletedCheckpointStorageLocation;
-import org.apache.flink.runtime.util.ExecutorThreadFactory;
+import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.concurrent.ExecutorThreadFactory;
 
 import org.junit.After;
 import org.junit.Before;
@@ -53,6 +55,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 
 /** Tests for {@link DefaultCompletedCheckpointStore}. */
@@ -68,7 +71,7 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
 
     @Before
     public void setup() {
-        builder = TestingStateHandleStore.builder();
+        builder = TestingStateHandleStore.newBuilder();
         checkpointStorageHelper = new TestingRetrievableStateStorageHelper<>();
         executorService = Executors.newFixedThreadPool(2, new ExecutorThreadFactory("IO-Executor"));
     }
@@ -131,7 +134,8 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
 
     /**
      * We have three completed checkpoints(1, 2, 3) in the state handle store. We expect that {@link
-     * DefaultCompletedCheckpointStore#recover()} should recover the sorted checkpoints by name.
+     * DefaultCompletedCheckpointStoreUtils#retrieveCompletedCheckpoints(StateHandleStore,
+     * CheckpointStoreUtil)} should recover the sorted checkpoints by name.
      */
     @Test
     public void testRecoverSortedCheckpoints() throws Exception {
@@ -139,9 +143,6 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
                 builder.setGetAllSupplier(() -> createStateHandles(3)).build();
         final CompletedCheckpointStore completedCheckpointStore =
                 createCompletedCheckpointStore(stateHandleStore);
-
-        completedCheckpointStore.recover();
-
         final List<CompletedCheckpoint> recoveredCompletedCheckpoint =
                 completedCheckpointStore.getAllCheckpoints();
         assertThat(recoveredCompletedCheckpoint.size(), is(3));
@@ -152,9 +153,9 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
         assertThat(checkpointIds, contains(1L, 2L, 3L));
     }
 
-    /** We got an {@link IOException} when retrieving checkpoint 2. It should be skipped. */
+    /** We got an {@link IOException} when retrieving checkpoint 2. It should NOT be skipped. */
     @Test
-    public void testCorruptDataInStateHandleStoreShouldBeSkipped() throws Exception {
+    public void testCorruptDataInStateHandleStoreShouldNotBeSkipped() throws Exception {
         final long corruptCkpId = 2L;
         checkpointStorageHelper.setRetrieveStateFunction(
                 state -> {
@@ -166,48 +167,15 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
 
         final TestingStateHandleStore<CompletedCheckpoint> stateHandleStore =
                 builder.setGetAllSupplier(() -> createStateHandles(3)).build();
-        final CompletedCheckpointStore completedCheckpointStore =
-                createCompletedCheckpointStore(stateHandleStore);
-
-        completedCheckpointStore.recover();
-
-        final List<CompletedCheckpoint> recoveredCompletedCheckpoint =
-                completedCheckpointStore.getAllCheckpoints();
-        assertThat(recoveredCompletedCheckpoint.size(), is(2));
-        final List<Long> checkpointIds =
-                recoveredCompletedCheckpoint.stream()
-                        .map(CompletedCheckpoint::getCheckpointID)
-                        .collect(Collectors.toList());
-        // Checkpoint 2 should be skipped.
-        assertThat(checkpointIds, contains(1L, 3L));
-    }
-
-    /**
-     * {@link DefaultCompletedCheckpointStore#recover()} should throw exception when all the
-     * checkpoints retrieved failed while the checkpoint pointers are not empty.
-     */
-    @Test
-    public void testRecoverFailedWhenRetrieveCheckpointAllFailed() {
-        final int ckpNum = 3;
-        checkpointStorageHelper.setRetrieveStateFunction(
-                (state) -> {
-                    throw new IOException(
-                            "Failed to retrieve checkpoint " + state.getCheckpointID());
-                });
-
-        final TestingStateHandleStore<CompletedCheckpoint> stateHandleStore =
-                builder.setGetAllSupplier(() -> createStateHandles(ckpNum)).build();
-        final CompletedCheckpointStore completedCheckpointStore =
-                createCompletedCheckpointStore(stateHandleStore);
-
         try {
-            completedCheckpointStore.recover();
-            fail("We should get an exception when retrieving state failed.");
-        } catch (Exception ex) {
-            final String errMsg =
-                    "Could not read any of the " + ckpNum + " checkpoints from storage.";
-            assertThat(ex, FlinkMatchers.containsMessage(errMsg));
+            createCompletedCheckpointStore(stateHandleStore);
+        } catch (Exception e) {
+            if (ExceptionUtils.findThrowable(e, IOException.class).isPresent()) {
+                return;
+            }
+            throw e;
         }
+        fail();
     }
 
     @Test
@@ -225,7 +193,6 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
         final CompletedCheckpointStore completedCheckpointStore =
                 createCompletedCheckpointStore(stateHandleStore);
 
-        completedCheckpointStore.recover();
         assertThat(completedCheckpointStore.getAllCheckpoints().size(), is(num));
         assertThat(completedCheckpointStore.getAllCheckpoints().get(0).getCheckpointID(), is(1L));
 
@@ -258,7 +225,6 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
         final CompletedCheckpointStore completedCheckpointStore =
                 createCompletedCheckpointStore(stateHandleStore);
 
-        completedCheckpointStore.recover();
         assertThat(completedCheckpointStore.getAllCheckpoints().size(), is(num));
         assertThat(completedCheckpointStore.getAllCheckpoints().get(0).getCheckpointID(), is(1L));
 
@@ -295,7 +261,6 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
         final CompletedCheckpointStore completedCheckpointStore =
                 createCompletedCheckpointStore(stateHandleStore);
 
-        completedCheckpointStore.recover();
         assertThat(completedCheckpointStore.getAllCheckpoints().size(), is(num));
 
         completedCheckpointStore.shutdown(JobStatus.CANCELED, new CheckpointsCleaner());
@@ -323,7 +288,6 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
         final CompletedCheckpointStore completedCheckpointStore =
                 createCompletedCheckpointStore(stateHandleStore);
 
-        completedCheckpointStore.recover();
         assertThat(completedCheckpointStore.getAllCheckpoints().size(), is(3));
 
         completedCheckpointStore.shutdown(JobStatus.CANCELLING, new CheckpointsCleaner());
@@ -337,6 +301,26 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
         assertThat(removeAllFuture.isDone(), is(false));
         assertThat(releaseAllFuture.isDone(), is(true));
         assertThat(completedCheckpointStore.getAllCheckpoints().size(), is(0));
+    }
+
+    @Test
+    public void testShutdownFailsAnyFutureCallsToAddCheckpoint() throws Exception {
+        final CheckpointsCleaner checkpointsCleaner = new CheckpointsCleaner();
+        for (JobStatus status : JobStatus.values()) {
+            final CompletedCheckpointStore completedCheckpointStore =
+                    createCompletedCheckpointStore(builder.build());
+            completedCheckpointStore.shutdown(status, checkpointsCleaner);
+            assertThrows(
+                    IllegalStateException.class,
+                    () ->
+                            completedCheckpointStore.addCheckpoint(
+                                    CompletedCheckpointStoreTest.createCheckpoint(
+                                            0L, new SharedStateRegistry()),
+                                    checkpointsCleaner,
+                                    () -> {
+                                        // No-op.
+                                    }));
+        }
     }
 
     private List<Tuple2<RetrievableStateHandle<CompletedCheckpoint>, String>> createStateHandles(
@@ -354,16 +338,16 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
     }
 
     private CompletedCheckpointStore createCompletedCheckpointStore(
-            TestingStateHandleStore<CompletedCheckpoint> stateHandleStore) {
+            TestingStateHandleStore<CompletedCheckpoint> stateHandleStore) throws Exception {
         return createCompletedCheckpointStore(stateHandleStore, 1);
     }
 
     private CompletedCheckpointStore createCompletedCheckpointStore(
-            TestingStateHandleStore<CompletedCheckpoint> stateHandleStore, int toRetain) {
-        return new DefaultCompletedCheckpointStore<>(
-                toRetain,
-                stateHandleStore,
+            TestingStateHandleStore<CompletedCheckpoint> stateHandleStore, int toRetain)
+            throws Exception {
+        final CheckpointStoreUtil checkpointStoreUtil =
                 new CheckpointStoreUtil() {
+
                     @Override
                     public String checkpointIDToName(long checkpointId) {
                         return String.valueOf(checkpointId);
@@ -371,9 +355,15 @@ public class DefaultCompletedCheckpointStoreTest extends TestLogger {
 
                     @Override
                     public long nameToCheckpointID(String name) {
-                        return Long.valueOf(name);
+                        return Long.parseLong(name);
                     }
-                },
+                };
+        return new DefaultCompletedCheckpointStore<>(
+                toRetain,
+                stateHandleStore,
+                checkpointStoreUtil,
+                DefaultCompletedCheckpointStoreUtils.retrieveCompletedCheckpoints(
+                        stateHandleStore, checkpointStoreUtil),
                 executorService);
     }
 

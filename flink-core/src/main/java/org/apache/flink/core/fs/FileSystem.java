@@ -35,10 +35,10 @@ import org.apache.flink.core.plugin.PluginManager;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.TemporaryClassLoaderContext;
 
-import org.apache.flink.shaded.guava18.com.google.common.base.Splitter;
-import org.apache.flink.shaded.guava18.com.google.common.collect.ImmutableMultimap;
-import org.apache.flink.shaded.guava18.com.google.common.collect.Iterators;
-import org.apache.flink.shaded.guava18.com.google.common.collect.Multimap;
+import org.apache.flink.shaded.guava30.com.google.common.base.Splitter;
+import org.apache.flink.shaded.guava30.com.google.common.collect.ImmutableMultimap;
+import org.apache.flink.shaded.guava30.com.google.common.collect.Iterators;
+import org.apache.flink.shaded.guava30.com.google.common.collect.Multimap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -248,6 +248,8 @@ public abstract class FileSystem {
             ImmutableMultimap.<String, String>builder()
                     .put("wasb", "flink-fs-azure-hadoop")
                     .put("wasbs", "flink-fs-azure-hadoop")
+                    .put("abfs", "flink-fs-azure-hadoop")
+                    .put("abfss", "flink-fs-azure-hadoop")
                     .put("oss", "flink-oss-fs-hadoop")
                     .put("s3", "flink-s3-fs-hadoop")
                     .put("s3", "flink-s3-fs-presto")
@@ -517,7 +519,7 @@ public abstract class FileSystem {
                                         + ".org/projects/flink/flink-docs-stable/ops/plugins.html for more information. If you want to "
                                         + "use a Hadoop file system for that scheme, please add the scheme to the configuration fs"
                                         + ".allowed-fallback-filesystems. For a full list of supported file systems, "
-                                        + "please see https://ci.apache.org/projects/flink/flink-docs-stable/ops/filesystems/.",
+                                        + "please see https://nightlies.apache.org/flink/flink-docs-stable/ops/filesystems/.",
                                 uri.getScheme(),
                                 plugins.size() == 1 ? "" : "s",
                                 String.join(", ", plugins)));
@@ -530,7 +532,7 @@ public abstract class FileSystem {
                                     + uri.getScheme()
                                     + "'. The scheme is not directly supported by Flink and no Hadoop file system to "
                                     + "support this scheme could be loaded. For a full list of supported file systems, "
-                                    + "please see https://ci.apache.org/projects/flink/flink-docs-stable/ops/filesystems/.",
+                                    + "please see https://nightlies.apache.org/flink/flink-docs-stable/ops/filesystems/.",
                             e);
                 }
             }

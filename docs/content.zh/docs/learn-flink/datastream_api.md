@@ -1,6 +1,6 @@
 ---
 title: DataStream API 简介
-weight: 2
+weight: 3
 type: docs
 ---
 <!--
@@ -74,7 +74,7 @@ public class Person {
 Person person = new Person("Fred Flintstone", 35);
 ```
 
-Flink 的序列化器[支持的 POJO 类型数据结构升级]({{< ref "docs/dev/datastream/fault-tolerance/schema_evolution" >}}#pojo-types)。
+Flink 的序列化器[支持的 POJO 类型数据结构升级]({{< ref "docs/dev/datastream/fault-tolerance/serialization/schema_evolution" >}}#pojo-types)。
 
 ### Scala tuples 和 case classes
 

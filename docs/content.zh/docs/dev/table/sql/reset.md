@@ -3,7 +3,7 @@ title: "RESET 语句"
 weight: 15
 type: docs
 aliases:
-  - /dev/table/sql/reset.html
+  - /zh/dev/table/sql/reset.html
 ---
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
@@ -43,7 +43,7 @@ The following examples show how to run a `RESET` statement in SQL CLI.
 {{< tabs "reset" >}}
 {{< tab "SQL CLI" >}}
 ```sql
-Flink SQL> RESET table.planner;
+Flink SQL> RESET 'table.planner';
 [INFO] Session property has been reset.
 
 Flink SQL> RESET;
@@ -55,7 +55,7 @@ Flink SQL> RESET;
 ## Syntax
 
 ```sql
-RESET (key)?
+RESET ('key')?
 ```
 
 If no key is specified, it reset all the properties to the default. Otherwise, reset the specified key to the default.

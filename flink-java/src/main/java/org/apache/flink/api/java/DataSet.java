@@ -687,9 +687,9 @@ public abstract class DataSet<T> {
      *       to apply a GroupReduce transformation.
      * </ul>
      *
-     * @param keyExtractor The KeySelector function which extracts the key values from the DataSet
-     *     on which it is grouped.
-     * @return An UnsortedGrouping on which a transformation needs to be applied to obtain a
+     * @param keyExtractor The {@link KeySelector} function which extracts the key values from the
+     *     DataSet on which it is grouped.
+     * @return An {@link UnsortedGrouping} on which a transformation needs to be applied to obtain a
      *     transformed DataSet.
      * @see KeySelector
      * @see UnsortedGrouping
@@ -726,8 +726,8 @@ public abstract class DataSet<T> {
      * </ul>
      *
      * @param fields One or more field positions on which the DataSet will be grouped.
-     * @return A Grouping on which a transformation needs to be applied to obtain a transformed
-     *     DataSet.
+     * @return An {@link UnsortedGrouping} on which a transformation needs to be applied to obtain a
+     *     transformed DataSet.
      * @see Tuple
      * @see UnsortedGrouping
      * @see AggregateOperator
@@ -759,8 +759,8 @@ public abstract class DataSet<T> {
      * </ul>
      *
      * @param fields One or more field expressions on which the DataSet will be grouped.
-     * @return A Grouping on which a transformation needs to be applied to obtain a transformed
-     *     DataSet.
+     * @return An {@link UnsortedGrouping} on which a transformation needs to be applied to obtain a
+     *     transformed DataSet.
      * @see Tuple
      * @see UnsortedGrouping
      * @see AggregateOperator
@@ -1557,7 +1557,7 @@ public abstract class DataSet<T> {
      * ...
      * dataset.writeAsText("file:///path1"); }</pre>
      *   <li>A directory is always created when <a
-     *       href="https://ci.apache.org/projects/flink/flink-docs-master/setup/config.html#file-systems">fs.output.always-create-directory</a>
+     *       href="https://nightlies.apache.org/flink/flink-docs-master/setup/config.html#file-systems">fs.output.always-create-directory</a>
      *       is set to true in flink-conf.yaml file, even when parallelism is set to 1.
      *       <pre>{@code .
      * └── path1/

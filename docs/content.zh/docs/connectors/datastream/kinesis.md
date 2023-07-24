@@ -1,6 +1,6 @@
 ---
 title: Kinesis
-weight: 4
+weight: 5
 type: docs
 aliases:
   - /zh/dev/connectors/kinesis.html
@@ -125,6 +125,40 @@ Also note that the assignment of shards to subtasks may not be optimal when
 shard IDs are not consecutive (as result of dynamic re-sharding in Kinesis).
 For cases where skew in the assignment leads to significant imbalanced consumption,
 a custom implementation of `KinesisShardAssigner` can be set on the consumer.
+
+### The `DeserializationSchema`
+
+Flink Kinesis Consumer also needs a schema to know how to turn the binary data in a Kinesis Data Stream into Java objects.
+The `KinesisDeserializationSchema` allows users to specify such a schema. The `T deserialize(byte[] recordValue, String partitionKey, String seqNum, long approxArrivalTimestamp, String stream, String shardId)` 
+method gets called for each Kinesis record.
+
+For convenience, Flink provides the following schemas out of the box:
+  
+1. `TypeInformationSerializationSchema` which creates a schema based on a Flink's `TypeInformation`. 
+    This is useful if the data is both written and read by Flink.
+    This schema is a performant Flink-specific alternative to other generic serialization approaches.
+
+2. `AvroDeserializationSchema` which reads data serialized with Avro format using a statically provided schema. It can
+    infer the schema from Avro generated classes (`AvroDeserializationSchema.forSpecific(...)`) or it can work with `GenericRecords`
+    with a manually provided schema (with `AvroDeserializationSchema.forGeneric(...)`). This deserialization schema expects that
+    the serialized records DO NOT contain embedded schema.
+
+    - You can use [AWS Glue Schema Registry](https://docs.aws.amazon.com/glue/latest/dg/schema-registry.html)
+      to retrieve the writer’s schema. Similarly, the deserialization record will be read with the schema from AWS Glue Schema Registry and transformed
+      (either through `GlueSchemaRegistryAvroDeserializationSchema.forGeneric(...)` or `GlueSchemaRegistryAvroDeserializationSchema.forSpecific(...)`).
+      For more information on integrating the AWS Glue Schema Registry with Apache Flink see
+      [Use Case: Amazon Kinesis Data Analytics for Apache Flink](https://docs.aws.amazon.com/glue/latest/dg/schema-registry-integrations.html#schema-registry-integrations-kinesis-data-analytics-apache-flink).
+
+    <br>To use this deserialization schema one has to add the following additional dependency:
+    
+{{< tabs "8c6721c7-4a48-496e-b0fe-6522cf6a5e13" >}}
+{{< tab "AvroDeserializationSchema" >}}
+{{< artifact flink-avro >}}
+{{< /tab >}}
+{{< tab "GlueSchemaRegistryAvroDeserializationSchema" >}}
+{{< artifact flink-avro-glue-schema-registry >}}
+{{< /tab >}}
+{{< /tabs >}}
 
 ### Configuring Starting Position
 
@@ -402,13 +436,11 @@ to avoid the event time skew related problems described in [Event time synchroni
 
 To enable synchronization, set the watermark tracker on the consumer:
 
-<div data-lang="java" markdown="1">
 ```java
 JobManagerWatermarkTracker watermarkTracker =
     new JobManagerWatermarkTracker("myKinesisSource");
 consumer.setWatermarkTracker(watermarkTracker);
 ```
-</div>
 
 The `JobManagerWatermarkTracker` will use a global aggregate to synchronize the per subtask watermarks. Each subtask
 uses a per shard queue to control the rate at which records are emitted downstream based on how far ahead of the global
@@ -507,8 +539,7 @@ Retry and backoff parameters can be configured using the
 this is called during stream consumer registration and deregistration. For each stream this service will be invoked 
 periodically until the stream consumer is reported `ACTIVE`/`not found` for registration/deregistration. By default,
 the `LAZY` registration strategy will scale the number of calls by the job parallelism. `EAGER` will call the service 
-once per stream for registration, and scale the number of calls by the job parallelism for deregistration. 
-`NONE` will not invoke this service. Retry and backoff parameters can be configured using the 
+once per stream for registration only. `NONE` will not invoke this service. Retry and backoff parameters can be configured using the 
 `ConsumerConfigConstants.DESCRIBE_STREAM_CONSUMER_*` keys.  
 
 - *[RegisterStreamConsumer](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_RegisterStreamConsumer.html)*: 
@@ -516,7 +547,7 @@ this is called once per stream during stream consumer registration, unless the `
 Retry and backoff parameters can be configured using the `ConsumerConfigConstants.REGISTER_STREAM_*` keys.
 
 - *[DeregisterStreamConsumer](https://docs.aws.amazon.com/kinesis/latest/APIReference/API_DeregisterStreamConsumer.html)*: 
-this is called once per stream during stream consumer deregistration, unless the `NONE` registration strategy is configured.
+this is called once per stream during stream consumer deregistration, unless the `NONE` or `EAGER` registration strategy is configured.
 Retry and backoff parameters can be configured using the `ConsumerConfigConstants.DEREGISTER_STREAM_*` keys.  
 
 ## Kinesis Producer

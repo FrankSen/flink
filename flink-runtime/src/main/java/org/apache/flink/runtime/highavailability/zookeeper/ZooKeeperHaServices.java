@@ -34,6 +34,7 @@ import org.apache.flink.runtime.util.ZooKeeperUtils;
 import org.apache.flink.shaded.curator4.org.apache.curator.framework.CuratorFramework;
 import org.apache.flink.shaded.curator4.org.apache.curator.utils.ZKPaths;
 import org.apache.flink.shaded.zookeeper3.org.apache.zookeeper.KeeperException;
+import org.apache.flink.shaded.zookeeper3.org.apache.zookeeper.data.Stat;
 
 import javax.annotation.Nonnull;
 
@@ -47,21 +48,37 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  *
  * <pre>
  * /flink
- *      +/cluster_id_1/resource_manager_lock
+ *      +/cluster_id_1/leader/resource_manager/latch
+ *      |            |                        /connection_info
+ *      |            |       /dispatcher/latch
+ *      |            |                  /connection_info
+ *      |            |       /rest_server/latch
+ *      |            |                   /connection_info
  *      |            |
- *      |            +/job-id-1/job_manager_lock
- *      |            |         /checkpoints/latest
- *      |            |                     /latest-1
- *      |            |                     /latest-2
  *      |            |
- *      |            +/job-id-2/job_manager_lock
+ *      |            +jobgraphs/job-id-1
+ *      |            |         /job-id-2
+ *      |            +jobs/job-id-1/leader/latch
+ *      |                 |               /connection_info
+ *      |                 |        /checkpoints/latest
+ *      |                 |                    /latest-1
+ *      |                 |                    /latest-2
+ *      |                 |       /checkpoint_id_counter
  *      |
- *      +/cluster_id_2/resource_manager_lock
- *                   |
- *                   +/job-id-1/job_manager_lock
- *                            |/checkpoints/latest
- *                            |            /latest-1
- *                            |/persisted_job_graph
+ *      +/cluster_id_2/leader/resource_manager/latch
+ *      |            |                        /connection_info
+ *      |            |       /dispatcher/latch
+ *      |            |                  /connection_info
+ *      |            |       /rest_server/latch
+ *      |            |                   /connection_info
+ *      |            |
+ *      |            +jobgraphs/job-id-2
+ *      |            +jobs/job-id-2/leader/latch
+ *      |                 |               /connection_info
+ *      |                 |        /checkpoints/latest
+ *      |                 |                    /latest-1
+ *      |                 |                    /latest-2
+ *      |                 |       /checkpoint_id_counter
  * </pre>
  *
  * <p>The root path "/flink" is configurable via the option {@link
@@ -70,10 +87,10 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  *
  * <p>The "cluster_id" part identifies the data stored for a specific Flink "cluster". This
  * "cluster" can be either a standalone or containerized Flink cluster, or it can be job on a
- * framework like YARN or Mesos (in a "per-job-cluster" mode).
+ * framework like YARN (in a "per-job-cluster" mode).
  *
- * <p>In case of a "per-job-cluster" on YARN or Mesos, the cluster-id is generated and configured
- * automatically by the client or dispatcher that submits the Job to YARN or Mesos.
+ * <p>In case of a "per-job-cluster" on YARN, the cluster-id is generated and configured
+ * automatically by the client or dispatcher that submits the Job to YARN.
  *
  * <p>In the case of a standalone cluster, that cluster-id needs to be configured via {@link
  * HighAvailabilityOptions#HA_CLUSTER_ID}. All nodes with the same cluster id will join the same
@@ -81,56 +98,56 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  */
 public class ZooKeeperHaServices extends AbstractHaServices {
 
-    private static final String RESOURCE_MANAGER_LEADER_PATH = "/resource_manager_lock";
-
-    private static final String DISPATCHER_LEADER_PATH = "/dispatcher_lock";
-
-    private static final String JOB_MANAGER_LEADER_PATH = "/job_manager_lock";
-
-    private static final String REST_SERVER_LEADER_PATH = "/rest_server_lock";
-
     // ------------------------------------------------------------------------
 
-    /** The ZooKeeper client to use. */
-    private final CuratorFramework client;
+    /** The curator resource to use. */
+    private final CuratorFrameworkWithUnhandledErrorListener curatorFrameworkWrapper;
 
     public ZooKeeperHaServices(
-            CuratorFramework client,
+            CuratorFrameworkWithUnhandledErrorListener curatorFrameworkWrapper,
             Executor executor,
             Configuration configuration,
             BlobStoreService blobStoreService) {
         super(configuration, executor, blobStoreService);
-        this.client = checkNotNull(client);
+        this.curatorFrameworkWrapper = checkNotNull(curatorFrameworkWrapper);
     }
 
     @Override
-    public CheckpointRecoveryFactory createCheckpointRecoveryFactory() {
-        return new ZooKeeperCheckpointRecoveryFactory(client, configuration, ioExecutor);
+    public CheckpointRecoveryFactory createCheckpointRecoveryFactory() throws Exception {
+        return new ZooKeeperCheckpointRecoveryFactory(
+                ZooKeeperUtils.useNamespaceAndEnsurePath(
+                        curatorFrameworkWrapper.asCuratorFramework(), ZooKeeperUtils.getJobsPath()),
+                configuration,
+                ioExecutor);
     }
 
     @Override
     public JobGraphStore createJobGraphStore() throws Exception {
-        return ZooKeeperUtils.createJobGraphs(client, configuration);
+        return ZooKeeperUtils.createJobGraphs(
+                curatorFrameworkWrapper.asCuratorFramework(), configuration);
     }
 
     @Override
     public RunningJobsRegistry createRunningJobsRegistry() {
-        return new ZooKeeperRunningJobsRegistry(client, configuration);
+        return new ZooKeeperRunningJobsRegistry(
+                curatorFrameworkWrapper.asCuratorFramework(), configuration);
     }
 
     @Override
-    protected LeaderElectionService createLeaderElectionService(String leaderName) {
-        return ZooKeeperUtils.createLeaderElectionService(client, configuration, leaderName);
+    protected LeaderElectionService createLeaderElectionService(String leaderPath) {
+        return ZooKeeperUtils.createLeaderElectionService(
+                curatorFrameworkWrapper.asCuratorFramework(), leaderPath);
     }
 
     @Override
-    protected LeaderRetrievalService createLeaderRetrievalService(String leaderName) {
-        return ZooKeeperUtils.createLeaderRetrievalService(client, configuration, leaderName);
+    protected LeaderRetrievalService createLeaderRetrievalService(String leaderPath) {
+        return ZooKeeperUtils.createLeaderRetrievalService(
+                curatorFrameworkWrapper.asCuratorFramework(), leaderPath, configuration);
     }
 
     @Override
     public void internalClose() {
-        client.close();
+        curatorFrameworkWrapper.close();
     }
 
     @Override
@@ -139,22 +156,28 @@ public class ZooKeeperHaServices extends AbstractHaServices {
     }
 
     @Override
-    protected String getLeaderNameForResourceManager() {
-        return RESOURCE_MANAGER_LEADER_PATH;
+    public void internalCleanupJobData(JobID jobID) throws Exception {
+        deleteZNode(ZooKeeperUtils.getLeaderPathForJob(jobID));
     }
 
     @Override
-    protected String getLeaderNameForDispatcher() {
-        return DISPATCHER_LEADER_PATH;
-    }
-
-    public String getLeaderNameForJobManager(final JobID jobID) {
-        return "/" + jobID + JOB_MANAGER_LEADER_PATH;
+    protected String getLeaderPathForResourceManager() {
+        return ZooKeeperUtils.getLeaderPathForResourceManager();
     }
 
     @Override
-    protected String getLeaderNameForRestServer() {
-        return REST_SERVER_LEADER_PATH;
+    protected String getLeaderPathForDispatcher() {
+        return ZooKeeperUtils.getLeaderPathForDispatcher();
+    }
+
+    @Override
+    public String getLeaderPathForJobManager(final JobID jobID) {
+        return ZooKeeperUtils.getLeaderPathForJobManager(jobID);
+    }
+
+    @Override
+    protected String getLeaderPathForRestServer() {
+        return ZooKeeperUtils.getLeaderPathForRestServer();
     }
 
     // ------------------------------------------------------------------------
@@ -168,6 +191,10 @@ public class ZooKeeperHaServices extends AbstractHaServices {
     }
 
     private void deleteOwnedZNode() throws Exception {
+        deleteZNode("/");
+    }
+
+    private void deleteZNode(String path) throws Exception {
         // delete the HA_CLUSTER_ID znode which is owned by this cluster
 
         // Since we are using Curator version 2.12 there is a bug in deleting the children
@@ -176,13 +203,22 @@ public class ZooKeeperHaServices extends AbstractHaServices {
         // The retry logic can be removed once we upgrade to Curator version >= 4.0.1.
         boolean zNodeDeleted = false;
         while (!zNodeDeleted) {
+            Stat stat = curatorFrameworkWrapper.asCuratorFramework().checkExists().forPath(path);
+            if (stat == null) {
+                logger.debug("znode {} has been deleted", path);
+                return;
+            }
             try {
-                client.delete().deletingChildrenIfNeeded().forPath("/");
+                curatorFrameworkWrapper
+                        .asCuratorFramework()
+                        .delete()
+                        .deletingChildrenIfNeeded()
+                        .forPath(path);
                 zNodeDeleted = true;
             } catch (KeeperException.NoNodeException ignored) {
                 // concurrent delete operation. Try again.
                 logger.debug(
-                        "Retrying to delete owned znode because of other concurrent delete operation.");
+                        "Retrying to delete znode because of other concurrent delete operation.");
             }
         }
     }
@@ -198,8 +234,12 @@ public class ZooKeeperHaServices extends AbstractHaServices {
      */
     private void tryDeleteEmptyParentZNodes() throws Exception {
         // try to delete the parent znodes if they are empty
-        String remainingPath = getParentPath(getNormalizedPath(client.getNamespace()));
-        final CuratorFramework nonNamespaceClient = client.usingNamespace(null);
+        String remainingPath =
+                getParentPath(
+                        getNormalizedPath(
+                                curatorFrameworkWrapper.asCuratorFramework().getNamespace()));
+        final CuratorFramework nonNamespaceClient =
+                curatorFrameworkWrapper.asCuratorFramework().usingNamespace(null);
 
         while (!isRootPath(remainingPath)) {
             try {

@@ -30,6 +30,7 @@ import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.util.Preconditions;
 
 import java.util.ArrayList;
@@ -175,6 +176,17 @@ public class OneInputStreamOperatorTestHarness<IN, OUT>
         super(factory, maxParallelism, parallelism, subtaskIndex, operatorID);
     }
 
+    public OneInputStreamOperatorTestHarness(
+            OneInputStreamOperator<IN, OUT> operator,
+            TypeSerializer<IN> typeSerializerIn,
+            String taskName,
+            OperatorID operatorID)
+            throws Exception {
+        super(operator, taskName, operatorID);
+
+        config.setupNetworkInputs(Preconditions.checkNotNull(typeSerializerIn));
+    }
+
     @Override
     public void setup(TypeSerializer<OUT> outputSerializer) {
         super.setup(outputSerializer);
@@ -212,6 +224,16 @@ public class OneInputStreamOperatorTestHarness<IN, OUT>
 
     public void processWatermark(long watermark) throws Exception {
         processWatermark(new Watermark(watermark));
+    }
+
+    public void processWatermarkStatus(WatermarkStatus status) throws Exception {
+        if (inputs.isEmpty()) {
+            getOneInputOperator().processWatermarkStatus(status);
+        } else {
+            checkState(inputs.size() == 1);
+            Input input = inputs.get(0);
+            input.processWatermarkStatus(status);
+        }
     }
 
     public void processWatermark(Watermark mark) throws Exception {
