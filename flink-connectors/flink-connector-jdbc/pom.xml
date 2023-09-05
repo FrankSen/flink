@@ -178,7 +178,13 @@ under the License.
 			<artifactId>mysql</artifactId>
 			<scope>test</scope>
 		</dependency>
-	</dependencies>
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>8.0.28</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
 
 	<build>
 		<plugins>

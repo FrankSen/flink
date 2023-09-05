@@ -139,7 +139,35 @@ public enum LogicalTypeRoot {
 
     SYMBOL(LogicalTypeFamily.EXTENSION),
 
-    UNRESOLVED(LogicalTypeFamily.EXTENSION);
+    TINYINT_UNSIGNED(
+            LogicalTypeFamily.PREDEFINED,
+            LogicalTypeFamily.NUMERIC,
+            LogicalTypeFamily.INTEGER_NUMERIC,
+            LogicalTypeFamily.EXACT_NUMERIC),
+    SMALLINT_UNSIGNED(
+            LogicalTypeFamily.PREDEFINED,
+            LogicalTypeFamily.NUMERIC,
+            LogicalTypeFamily.INTEGER_NUMERIC,
+            LogicalTypeFamily.EXACT_NUMERIC),
+    INT_UNSIGNED(LogicalTypeFamily.PREDEFINED, LogicalTypeFamily.DATETIME, LogicalTypeFamily.TIME),
+
+    UNRESOLVED(LogicalTypeFamily.EXTENSION),
+
+    MEDIUMINT_UNSIGNED(LogicalTypeFamily.EXTENSION),
+
+    MEDIUMINT(LogicalTypeFamily.EXTENSION),
+
+    BIGINT_UNSIGNED(LogicalTypeFamily.EXTENSION),
+
+    BLOB(LogicalTypeFamily.EXTENSION),
+
+    LONGBLOB(LogicalTypeFamily.EXTENSION),
+
+    MEDIUMBLOB(LogicalTypeFamily.EXTENSION),
+
+    TINYBLOB(LogicalTypeFamily.EXTENSION),
+
+    INT(LogicalTypeFamily.EXTENSION);
 
     private final Set<LogicalTypeFamily> families;
 
